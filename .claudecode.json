@@ -1,0 +1,10 @@
+
+{
+  "project": "makestar_papago",
+  "rules": [
+    "Follow Ultrawork and Ralplan principles.",
+    "Use Makestar 다국어 시트 (1dHJ5IR6NVqOTaCt4HLsgD7fMgYno0ar97oddddqEvNc) as RAG context.",
+    "Consult pencil.dev for UI design iterations.",
+    "Language support: KO, EN, JA, ZH-CN, ZH-TW, ES."
+  ]
+}
