@@ -14,7 +14,7 @@ class TranslationService(
     private val webClient = WebClient.builder().build()
 
     fun translate(text: String, targetLang: String): TranslationResult {
-        // 1. RAG: 메이크스타 용어집에서 관련 용어 검색 (최대 5개)
+        // 1. RAG: 메이크스타 용어집에서 관련 용어 검색 (최대 10개)
         val matchedTerms = glossaryRepository.findByKoContaining(text).take(10)
         
         val glossaryContext = if (matchedTerms.isNotEmpty()) {
@@ -57,8 +57,8 @@ class TranslationService(
                 .header("anthropic-version", "2023-06-01")
                 .header("Content-Type", "application/json")
                 .bodyValue(mapOf(
-                    "model" to "claude-3-5-sonnet-20241022",
-                    "max_tokens" to 1024,
+                    "model" to "claude-sonnet-4-20250514",
+                    "max_tokens" to 4096,
                     "messages" to listOf(
                         mapOf("role" to "user", "content" to prompt)
                     )
@@ -85,3 +85,10 @@ class TranslationService(
         }
     }
 }
+
+data class TranslationResult(
+    val originalText: String,
+    val translatedText: String,
+    val targetLang: String,
+    val contextUsed: String
+)
