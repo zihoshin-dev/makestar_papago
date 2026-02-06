@@ -62,5 +62,12 @@ class Glossary(
     val enNorthAmerica: String = "",
 
     @Column(columnDefinition = "TEXT")
-    val jaJapan: String = ""
+    val jaJapan: String = "",
+
+    // 추가 언어
+    @Column(columnDefinition = "TEXT")
+    val de: String = "",
+
+    @Column(columnDefinition = "TEXT")
+    val fr: String = ""
 )

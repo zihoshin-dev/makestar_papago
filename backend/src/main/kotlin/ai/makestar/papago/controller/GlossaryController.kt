@@ -15,7 +15,9 @@ data class GlossaryResponse(
     val ja: String,
     val zhHans: String,
     val zhHant: String,
-    val es: String
+    val es: String,
+    val de: String,
+    val fr: String
 )
 
 data class GlossaryPage(
@@ -72,6 +74,8 @@ class GlossaryController(
         ja = ja,
         zhHans = zhHans,
         zhHant = zhHant,
-        es = es
+        es = es,
+        de = de,
+        fr = fr
     )
 }

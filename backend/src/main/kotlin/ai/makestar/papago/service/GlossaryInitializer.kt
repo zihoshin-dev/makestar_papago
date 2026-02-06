@@ -54,7 +54,10 @@ class GlossaryInitializer(
                     zhHantTaiwan = row.safeText(12),
                     zhHansChina = row.safeText(13),
                     enNorthAmerica = row.safeText(14),
-                    jaJapan = row.safeText(15)
+                    jaJapan = row.safeText(15),
+                    // Additional languages
+                    de = row.safeText(16),
+                    fr = row.safeText(17)
                 )
             )
         }
