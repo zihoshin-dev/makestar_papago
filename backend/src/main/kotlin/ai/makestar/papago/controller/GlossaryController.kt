@@ -39,6 +39,18 @@ data class GlossaryUpdateRequest(
     val fr: String? = null
 )
 
+data class GlossaryCreateRequest(
+    val ko: String,
+    val pageUrl: String = "/custom",
+    val en: String = "",
+    val ja: String = "",
+    val zhHans: String = "",
+    val zhHant: String = "",
+    val es: String = "",
+    val de: String = "",
+    val fr: String = ""
+)
+
 @RestController
 @RequestMapping("/api/glossary")
 class GlossaryController(
@@ -75,6 +87,25 @@ class GlossaryController(
             number = glossaryPage.number,
             size = glossaryPage.size
         )
+    }
+
+    @PostMapping
+    fun createGlossary(@RequestBody request: GlossaryCreateRequest): GlossaryResponse {
+        val keyName = request.ko.lowercase().replace(Regex("[^a-zA-Z0-9가-힣]"), "_")
+        val glossary = Glossary(
+            pageUrl = request.pageUrl,
+            keyName = keyName,
+            ko = request.ko,
+            en = request.en,
+            ja = request.ja,
+            zhHans = request.zhHans,
+            zhHant = request.zhHant,
+            es = request.es,
+            de = request.de,
+            fr = request.fr
+        )
+        val saved = glossaryRepository.save(glossary)
+        return saved.toResponse()
     }
 
     @PutMapping("/{id}")
