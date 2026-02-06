@@ -98,14 +98,14 @@ class KoreanMorphologyService {
             }
         }
 
-        // Check if last character has batchim
-        val lastChar = word.last()
-        val hasBatchim = hasBatchim(lastChar)
+        // Try both particle lists (no-batchim and with-batchim) since the
+        // batchim of the last character includes the particle itself, not the stem.
+        // False positives won't matter as they simply won't match in the glossary.
+        val allParticles = (PARTICLES_NO_BATCHIM + PARTICLES_WITH_BATCHIM)
+            .distinct()
+            .sortedByDescending { it.length }
 
-        // Try appropriate particle list based on batchim
-        val particlesToTry = if (hasBatchim) PARTICLES_WITH_BATCHIM else PARTICLES_NO_BATCHIM
-
-        for (particle in particlesToTry.sortedByDescending { it.length }) {
+        for (particle in allParticles) {
             if (word.endsWith(particle)) {
                 val stem = word.dropLast(particle.length)
                 if (stem.length >= MIN_STEM_LENGTH) {
