@@ -11,12 +11,13 @@ class TranslationController(
 ) {
     @PostMapping
     fun translate(@RequestBody request: TranslationRequest): TranslationResult {
-        return translationService.translate(request.text, request.targetLang, request.pageUrl)
+        return translationService.translate(request.text, request.targetLang, request.pageUrl, request.sourceLang)
     }
 }
 
 data class TranslationRequest(
     val text: String,
     val targetLang: String,
-    val pageUrl: String? = null
+    val pageUrl: String? = null,
+    val sourceLang: String? = null  // null = auto-detect, "ko", "en", "ja", etc.
 )

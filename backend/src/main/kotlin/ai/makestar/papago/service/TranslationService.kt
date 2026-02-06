@@ -18,6 +18,7 @@ class TranslationService(
 
     companion object {
         private val LANGUAGE_NAMES = mapOf(
+            "ko" to "Korean",
             "en" to "English",
             "ja" to "Japanese",
             "zh-hans" to "Simplified Chinese",
@@ -31,8 +32,11 @@ class TranslationService(
         private const val GLOSSARY_MIN_SCORE = 20.0
     }
 
-    fun translate(text: String, targetLang: String, pageUrl: String? = null): TranslationResult {
-        // 0. Input validation
+    fun translate(text: String, targetLang: String, pageUrl: String? = null, sourceLang: String? = null): TranslationResult {
+        // 0. Determine if source is Korean
+        val isSourceKorean = sourceLang == null || sourceLang.lowercase() == "ko"
+
+        // 1. Input validation
         val validation = inputValidationService.validate(text)
         if (!validation.isValid) {
             val errorMessage = inputValidationService.getErrorMessage(validation.reason ?: "UNKNOWN")
@@ -47,7 +51,7 @@ class TranslationService(
             )
         }
 
-        // 1. Check approved translation cache first
+        // 2. Check approved translation cache first
         val approved = feedbackService.findApprovedTranslation(text, targetLang)
         if (approved != null) {
             val historyId = feedbackService.recordTranslation(
@@ -69,12 +73,12 @@ class TranslationService(
             )
         }
 
-        // Detect tone for all strategies
-        val tone = toneDetectorService.detectTone(text)
-        val detectedTone = tone.name
+        // 3. Detect tone (for all strategies)
+        val tone = if (isSourceKorean) toneDetectorService.detectTone(text) else null
+        val detectedTone = tone?.name
 
-        // STRATEGY A: SLANG_DECODE - Korean jamo-only slang lookup
-        if (koreanSlangDictionaryService.isJamoOnly(text)) {
+        // 4. STRATEGY A: SLANG_DECODE - Korean jamo-only slang lookup (Korean source only)
+        if (isSourceKorean && koreanSlangDictionaryService.isJamoOnly(text)) {
             val slangResult = koreanSlangDictionaryService.lookup(text, targetLang)
             if (slangResult != null) {
                 val historyId = feedbackService.recordTranslation(
@@ -97,13 +101,17 @@ class TranslationService(
             }
         }
 
-        // 2. RAG: Score-based glossary search with relevance threshold
-        val detectedPageUrl = pageUrl ?: contextDetectionService.detectContext(text)
-        val scoredMatches = glossarySearchService.search(text, detectedPageUrl)
-            .filter { it.score >= GLOSSARY_MIN_SCORE }
+        // 5. RAG: Score-based glossary search with relevance threshold (Korean source only)
+        val detectedPageUrl = if (isSourceKorean) pageUrl ?: contextDetectionService.detectContext(text) else null
+        val scoredMatches = if (isSourceKorean) {
+            glossarySearchService.search(text, detectedPageUrl)
+                .filter { it.score >= GLOSSARY_MIN_SCORE }
+        } else {
+            emptyList()
+        }
 
-        // STRATEGY B: GLOSSARY_DIRECT - Single exact match with target translation
-        if (scoredMatches.size == 1 && scoredMatches.first().score == 100.0) {
+        // 6. STRATEGY B: GLOSSARY_DIRECT - Single exact match with target translation (Korean source only)
+        if (isSourceKorean && scoredMatches.size == 1 && scoredMatches.first().score == 100.0) {
             val exactMatch = scoredMatches.first().glossary
             val directTranslation = glossarySearchService.getBestTranslation(exactMatch, targetLang)
 
@@ -165,20 +173,23 @@ class TranslationService(
             )
         }
 
-        // 3. Generate tone hint for Claude
-        val toneHint = when (detectedTone) {
-            "FORMAL" -> "\n8. The input text tone is FORMAL. Maintain similar formality in the translation."
-            "CASUAL" -> "\n8. The input text tone is CASUAL. Use casual/informal language in the translation."
-            else -> null
-        }
+        // 7. Generate tone hint for Claude (Korean source only)
+        val toneHint = if (isSourceKorean) {
+            when (detectedTone) {
+                "FORMAL" -> "\n8. The input text tone is FORMAL. Maintain similar formality in the translation."
+                "CASUAL" -> "\n8. The input text tone is CASUAL. Use casual/informal language in the translation."
+                else -> null
+            }
+        } else null
 
-        // STRATEGY C: RAG_ASSISTED - Glossary context + Claude API
-        // STRATEGY D: LLM_PRIMARY - No glossary matches, Claude API only
+        // 8. STRATEGY C: RAG_ASSISTED - Glossary context + Claude API (Korean source)
+        // STRATEGY D: LLM_PRIMARY - No glossary matches, Claude API only (any source)
         val langName = LANGUAGE_NAMES[targetLang.lowercase()] ?: targetLang
-        val rawTranslation = callClaudeApi(text, langName, glossaryContext, toneHint)
+        val sourceLangName = if (sourceLang != null) LANGUAGE_NAMES[sourceLang.lowercase()] ?: sourceLang else null
+        val rawTranslation = callClaudeApi(text, langName, glossaryContext, toneHint, sourceLangName)
 
-        // 4. Post-processing validation
-        val translatedText = postProcessTranslation(rawTranslation, text, langName)
+        // 9. Post-processing validation
+        val translatedText = postProcessTranslation(rawTranslation, text, langName, isSourceKorean)
 
         // 5. Record translation history
         val historyId = feedbackService.recordTranslation(
@@ -205,7 +216,7 @@ class TranslationService(
     }
 
     @Suppress("UNUSED_PARAMETER")
-    private fun postProcessTranslation(rawTranslation: String, originalText: String, targetLang: String): String {
+    private fun postProcessTranslation(rawTranslation: String, originalText: String, targetLang: String, isSourceKorean: Boolean): String {
         var result = rawTranslation.trim()
 
         // Remove wrapping quotes if present
@@ -214,8 +225,10 @@ class TranslationService(
             result = result.substring(1, result.length - 1).trim()
         }
 
+        // Check if input is Korean jamo (only relevant for Korean source)
+        val isKoreanJamo = isSourceKorean && originalText.trim().all { it.isWhitespace() || it in '\u3131'..'\u318E' }
+
         // Handle [UNTRANSLATABLE] marker (but not for Korean jamo input - those are K-Pop slang)
-        val isKoreanJamo = originalText.trim().all { it.isWhitespace() || it in '\u3131'..'\u318E' }
         if (result.contains(UNTRANSLATABLE_MARKER, ignoreCase = true) && !isKoreanJamo) {
             return "번역할 수 없는 텍스트예요."
         }
@@ -244,10 +257,30 @@ class TranslationService(
         text: String,
         targetLangName: String,
         context: String,
-        toneHint: String? = null
+        toneHint: String? = null,
+        sourceLangName: String? = null
     ): String {
-        val systemPrompt = buildString {
-            append("""You are a professional Korean-to-$targetLangName translator specializing in K-Pop fandom and e-commerce (Makestar platform).
+        val systemPrompt = if (sourceLangName != null && sourceLangName != "Korean") {
+            // Non-Korean source language
+            buildString {
+                append("""You are a professional $sourceLangName-to-$targetLangName translator specializing in K-Pop fandom and e-commerce (Makestar platform).
+
+Rules:
+1. Translate the $sourceLangName text accurately into natural $targetLangName.
+2. If Makestar-specific terminology is provided, use those exact translations.
+3. Maintain the tone and nuance appropriate for K-Pop fans.
+4. Return ONLY the translated text. No explanations, labels, or quotes.
+5. If the input is truly meaningless, respond with exactly: $UNTRANSLATABLE_MARKER
+6. Never return the original text as the translation.""".trimIndent())
+
+                if (toneHint != null) {
+                    append(toneHint)
+                }
+            }
+        } else {
+            // Korean source language (default)
+            buildString {
+                append("""You are a professional Korean-to-$targetLangName translator specializing in K-Pop fandom and e-commerce (Makestar platform).
 
 Rules:
 1. Translate the Korean text accurately into natural $targetLangName.
@@ -269,17 +302,19 @@ Rules:
 6. If the input is truly meaningless random NON-KOREAN characters, respond with exactly: $UNTRANSLATABLE_MARKER
 7. Never return the original Korean text as the translation.""".trimIndent())
 
-            if (toneHint != null) {
-                append(toneHint)
+                if (toneHint != null) {
+                    append(toneHint)
+                }
             }
         }
 
+        val sourceLabel = sourceLangName ?: "Korean"
         val userMessage = buildString {
             if (context.isNotBlank()) {
                 appendLine(context)
                 appendLine()
             }
-            append("Translate to $targetLangName: $text")
+            append("Translate from $sourceLabel to $targetLangName: $text")
         }
 
         return try {
