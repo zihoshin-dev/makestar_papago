@@ -9,6 +9,7 @@ class TranslationService(
     private val glossarySearchService: GlossarySearchService,
     private val feedbackService: FeedbackService,
     private val inputValidationService: InputValidationService,
+    private val contextDetectionService: ContextDetectionService,
     @Value("\${api.claude.key}") private val claudeApiKey: String
 ) {
     private val webClient = WebClient.builder().build()
@@ -63,7 +64,8 @@ class TranslationService(
         }
 
         // 2. RAG: Score-based glossary search with relevance threshold
-        val scoredMatches = glossarySearchService.search(text, pageUrl)
+        val detectedPageUrl = pageUrl ?: contextDetectionService.detectContext(text)
+        val scoredMatches = glossarySearchService.search(text, detectedPageUrl)
             .filter { it.score >= GLOSSARY_MIN_SCORE }
 
         val glossaryContext = if (scoredMatches.isNotEmpty()) {
@@ -132,9 +134,11 @@ class TranslationService(
         }
 
         // Detect when translation equals original (Claude returned input as-is)
+        // But allow short Korean consonant/vowel expressions (K-Pop internet slang)
         val normalizedResult = result.replace("\\s+".toRegex(), "").lowercase()
         val normalizedOriginal = originalText.replace("\\s+".toRegex(), "").lowercase()
-        if (normalizedResult == normalizedOriginal && originalText.length > 1) {
+        val isKoreanSlang = originalText.trim().all { it.isWhitespace() || it in '\u3131'..'\u318E' }
+        if (normalizedResult == normalizedOriginal && originalText.length > 1 && !isKoreanSlang) {
             return "번역할 수 없는 텍스트예요."
         }
 
@@ -149,8 +153,20 @@ Rules:
 2. If Makestar-specific terminology is provided, use those exact translations.
 3. Maintain the tone and nuance appropriate for K-Pop fans.
 4. Return ONLY the translated text. No explanations, labels, or quotes.
-5. If the input text is meaningless, gibberish, or cannot be translated (e.g., random characters, keyboard mashing), respond with exactly: $UNTRANSLATABLE_MARKER
-6. Never return the original Korean text as the translation.""".trimIndent()
+5. Korean internet slang using consonants/vowels MUST be translated naturally:
+   - ㅋㅋㅋ / ㅋㅋ = laughter (hahaha, lol)
+   - ㅠㅠ / ㅜㅜ = crying/sadness (so sad, *cries*)
+   - ㅇㅇ = agreement (yeah, yes)
+   - ㅎㅎ = soft laughter (hehe)
+   - ㄱㅅ = thanks (short for 감사)
+   - ㄴㄴ = no no (short for 노노)
+   - ㅇㅋ = ok (short for 오케이)
+   - ㄷㄷ = trembling/shocked (wow, omg)
+   - ㅂㅂ = bye bye
+   - ㅁㅊ = crazy (abbreviation)
+   These are common K-Pop fan expressions, NOT gibberish.
+6. If the input is truly meaningless random characters, respond with exactly: $UNTRANSLATABLE_MARKER
+7. Never return the original Korean text as the translation.""".trimIndent()
 
         val userMessage = buildString {
             if (context.isNotBlank()) {
