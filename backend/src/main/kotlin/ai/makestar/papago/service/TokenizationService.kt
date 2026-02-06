@@ -3,7 +3,9 @@ package ai.makestar.papago.service
 import org.springframework.stereotype.Service
 
 @Service
-class TokenizationService {
+class TokenizationService(
+    private val morphologyService: KoreanMorphologyService
+) {
 
     /**
      * Tokenize input text into searchable tokens.
@@ -19,6 +21,11 @@ class TokenizationService {
 
         // Add individual words
         tokens.addAll(words)
+
+        // Add stem tokens for each word (particle stripping + verb normalization)
+        for (word in words) {
+            tokens.addAll(morphologyService.stem(word))
+        }
 
         // Add bigrams (adjacent 2-word combinations)
         for (i in 0 until words.size - 1) {
@@ -47,6 +54,8 @@ class TokenizationService {
         val trimmed = text.trim()
         if (trimmed.length >= 2) {
             tokens.add(trimmed)
+            // Also add stems for the full text
+            tokens.addAll(morphologyService.stem(trimmed))
         }
         return tokens
     }

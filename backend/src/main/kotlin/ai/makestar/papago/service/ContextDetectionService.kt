@@ -3,7 +3,9 @@ package ai.makestar.papago.service
 import org.springframework.stereotype.Service
 
 @Service
-class ContextDetectionService {
+class ContextDetectionService(
+    private val morphologyService: KoreanMorphologyService
+) {
 
     companion object {
         private val CONTEXT_KEYWORDS = mapOf(
@@ -14,23 +16,36 @@ class ContextDetectionService {
             "/mypage" to listOf("마이페이지", "내 정보", "주문내역", "포인트", "쿠폰", "설정", "알림"),
             "/order" to listOf("주문", "결제", "배송", "장바구니", "수량", "합계", "카드", "환불", "교환", "반품", "송장", "택배"),
             "/community" to listOf("커뮤니티", "게시글", "댓글", "좋아요", "팔로우", "피드", "타임라인"),
-            "/auth" to listOf("로그인", "회원가입", "비밀번호", "인증", "이메일", "본인확인")
+            "/auth" to listOf("로그인", "회원가입", "비밀번호", "인증", "이메일", "본인확인"),
+            "/fandom" to listOf("최애", "덕질", "입덕", "탈덕", "컴백", "총공", "스밍", "직캠", "팬캠", "떡밥"),
+            "/event" to listOf("팬싸", "영통", "요소", "포카", "럭키드로우", "응모", "추첨", "당첨")
         )
     }
 
     /**
      * Analyze input text and auto-detect the most relevant page context.
+     * Uses morphological stemming for better keyword matching.
      * Returns the page URL path with highest keyword match, or null if no strong match.
      */
     fun detectContext(inputText: String): String? {
         if (inputText.isBlank()) return null
+
+        // Pre-compute stems for all words in the input
+        val words = inputText.split(Regex("[\\s,.!?;:()\\[\\]{}\"'~·…/\\\\|@#\$%^&*+=<>]+"))
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+        val inputStems = words.flatMap { morphologyService.stem(it) }.toSet()
 
         val scores = mutableMapOf<String, Int>()
 
         for ((pageUrl, keywords) in CONTEXT_KEYWORDS) {
             var matchCount = 0
             for (keyword in keywords) {
-                if (inputText.contains(keyword)) {
+                // Stem-based match: check if any stem matches the keyword
+                val stemMatch = inputStems.contains(keyword)
+                // Fallback: substring match for multi-word keywords (e.g., "내 정보")
+                val containsMatch = inputText.contains(keyword)
+                if (stemMatch || containsMatch) {
                     matchCount++
                 }
             }
@@ -42,7 +57,6 @@ class ContextDetectionService {
         if (scores.isEmpty()) return null
 
         // Return the page with the highest match count
-        // Require at least 1 match to assign context
         return scores.maxByOrNull { it.value }?.key
     }
 }

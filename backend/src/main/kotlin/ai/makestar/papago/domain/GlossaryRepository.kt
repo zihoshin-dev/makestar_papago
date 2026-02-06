@@ -14,4 +14,6 @@ interface GlossaryRepository : JpaRepository<Glossary, Long> {
 
     @Query("SELECT g FROM Glossary g WHERE g.ko LIKE %:token%")
     fun findByKoLike(token: String): List<Glossary>
+
+    fun findByKoIn(koList: Collection<String>): List<Glossary>
 }

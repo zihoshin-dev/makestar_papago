@@ -10,6 +10,8 @@ class TranslationService(
     private val feedbackService: FeedbackService,
     private val inputValidationService: InputValidationService,
     private val contextDetectionService: ContextDetectionService,
+    private val koreanSlangDictionaryService: KoreanSlangDictionaryService,
+    private val toneDetectorService: ToneDetectorService,
     @Value("\${api.claude.key}") private val claudeApiKey: String
 ) {
     private val webClient = WebClient.builder().build()
@@ -39,7 +41,9 @@ class TranslationService(
                 translatedText = errorMessage,
                 targetLang = targetLang,
                 contextUsed = "",
-                isValidationError = true
+                isValidationError = true,
+                translationStrategy = "VALIDATION_ERROR",
+                detectedTone = null
             )
         }
 
@@ -59,14 +63,89 @@ class TranslationService(
                 targetLang = targetLang,
                 contextUsed = "Approved translation (used ${approved.usageCount} times)",
                 historyId = historyId,
-                isFromCache = true
+                isFromCache = true,
+                translationStrategy = "APPROVED_CACHE",
+                detectedTone = null
             )
+        }
+
+        // Detect tone for all strategies
+        val tone = toneDetectorService.detectTone(text)
+        val detectedTone = tone.name
+
+        // STRATEGY A: SLANG_DECODE - Korean jamo-only slang lookup
+        if (koreanSlangDictionaryService.isJamoOnly(text)) {
+            val slangResult = koreanSlangDictionaryService.lookup(text, targetLang)
+            if (slangResult != null) {
+                val historyId = feedbackService.recordTranslation(
+                    sourceText = text,
+                    targetLang = targetLang,
+                    translatedText = slangResult.translatedText,
+                    matchedGlossaryCount = 0,
+                    isFromCache = false
+                )
+                return TranslationResult(
+                    originalText = text,
+                    translatedText = slangResult.translatedText,
+                    targetLang = targetLang,
+                    contextUsed = "Korean slang dictionary lookup",
+                    historyId = historyId,
+                    isFromCache = false,
+                    translationStrategy = "SLANG_DECODE",
+                    detectedTone = detectedTone
+                )
+            }
         }
 
         // 2. RAG: Score-based glossary search with relevance threshold
         val detectedPageUrl = pageUrl ?: contextDetectionService.detectContext(text)
         val scoredMatches = glossarySearchService.search(text, detectedPageUrl)
             .filter { it.score >= GLOSSARY_MIN_SCORE }
+
+        // STRATEGY B: GLOSSARY_DIRECT - Single exact match with target translation
+        if (scoredMatches.size == 1 && scoredMatches.first().score == 100.0) {
+            val exactMatch = scoredMatches.first().glossary
+            val directTranslation = glossarySearchService.getBestTranslation(exactMatch, targetLang)
+
+            // Only use direct if translation is meaningful (not just falling back to English)
+            val hasTargetTranslation = when (targetLang.lowercase()) {
+                "en" -> exactMatch.en.isNotBlank()
+                "ja" -> exactMatch.ja.isNotBlank()
+                "zh-hans", "zh_hans" -> exactMatch.zhHans.isNotBlank()
+                "zh-hant", "zh_hant" -> exactMatch.zhHant.isNotBlank()
+                "es" -> exactMatch.es.isNotBlank()
+                else -> false
+            }
+
+            if (hasTargetTranslation) {
+                val historyId = feedbackService.recordTranslation(
+                    sourceText = text,
+                    targetLang = targetLang,
+                    translatedText = directTranslation,
+                    matchedGlossaryCount = 1,
+                    isFromCache = false
+                )
+                return TranslationResult(
+                    originalText = text,
+                    translatedText = directTranslation,
+                    targetLang = targetLang,
+                    contextUsed = "Exact glossary match: ${exactMatch.ko} -> $directTranslation",
+                    matchedGlossaryIds = listOfNotNull(exactMatch.id),
+                    matchScores = listOf(
+                        MatchScore(
+                            glossaryId = exactMatch.id ?: 0L,
+                            ko = exactMatch.ko,
+                            score = 100.0,
+                            matchType = scoredMatches.first().matchType
+                        )
+                    ),
+                    historyId = historyId,
+                    isFromCache = false,
+                    translationStrategy = "GLOSSARY_DIRECT",
+                    detectedTone = detectedTone
+                )
+            }
+        }
 
         val glossaryContext = if (scoredMatches.isNotEmpty()) {
             "Use the following Makestar-specific terminology if applicable:\n" +
@@ -86,9 +165,17 @@ class TranslationService(
             )
         }
 
-        // 3. Call Claude API with RAG context
+        // 3. Generate tone hint for Claude
+        val toneHint = when (detectedTone) {
+            "FORMAL" -> "\n8. The input text tone is FORMAL. Maintain similar formality in the translation."
+            "CASUAL" -> "\n8. The input text tone is CASUAL. Use casual/informal language in the translation."
+            else -> null
+        }
+
+        // STRATEGY C: RAG_ASSISTED - Glossary context + Claude API
+        // STRATEGY D: LLM_PRIMARY - No glossary matches, Claude API only
         val langName = LANGUAGE_NAMES[targetLang.lowercase()] ?: targetLang
-        val rawTranslation = callClaudeApi(text, langName, glossaryContext)
+        val rawTranslation = callClaudeApi(text, langName, glossaryContext, toneHint)
 
         // 4. Post-processing validation
         val translatedText = postProcessTranslation(rawTranslation, text, langName)
@@ -102,14 +189,18 @@ class TranslationService(
             isFromCache = false
         )
 
+        val strategy = if (scoredMatches.isNotEmpty()) "RAG_ASSISTED" else "LLM_PRIMARY"
+
         return TranslationResult(
             originalText = text,
             translatedText = translatedText,
             targetLang = targetLang,
-            contextUsed = glossaryContext,
+            contextUsed = glossaryContext.ifBlank { "No glossary matches (LLM-only translation)" },
             matchedGlossaryIds = matchedGlossaryIds,
             matchScores = matchScores,
-            historyId = historyId
+            historyId = historyId,
+            translationStrategy = strategy,
+            detectedTone = detectedTone
         )
     }
 
@@ -149,8 +240,14 @@ class TranslationService(
         return result
     }
 
-    private fun callClaudeApi(text: String, targetLangName: String, context: String): String {
-        val systemPrompt = """You are a professional Korean-to-$targetLangName translator specializing in K-Pop fandom and e-commerce (Makestar platform).
+    private fun callClaudeApi(
+        text: String,
+        targetLangName: String,
+        context: String,
+        toneHint: String? = null
+    ): String {
+        val systemPrompt = buildString {
+            append("""You are a professional Korean-to-$targetLangName translator specializing in K-Pop fandom and e-commerce (Makestar platform).
 
 Rules:
 1. Translate the Korean text accurately into natural $targetLangName.
@@ -170,7 +267,12 @@ Rules:
    - ㅁㅊ = crazy (abbreviation)
    IMPORTANT: More repeated characters = more emphasis (e.g., ㅋㅋㅋㅋㅋ = lots of laughter, ㅠㅠㅠㅠ = very sad, ㅇㅇㅇ = emphatic yes). ANY input made entirely of Korean consonants or vowels is K-Pop fan slang and MUST be translated. NEVER mark them as untranslatable.
 6. If the input is truly meaningless random NON-KOREAN characters, respond with exactly: $UNTRANSLATABLE_MARKER
-7. Never return the original Korean text as the translation.""".trimIndent()
+7. Never return the original Korean text as the translation.""".trimIndent())
+
+            if (toneHint != null) {
+                append(toneHint)
+            }
+        }
 
         val userMessage = buildString {
             if (context.isNotBlank()) {
@@ -223,5 +325,7 @@ data class TranslationResult(
     val matchScores: List<MatchScore> = emptyList(),
     val historyId: Long? = null,
     val isFromCache: Boolean = false,
-    val isValidationError: Boolean = false
+    val isValidationError: Boolean = false,
+    val translationStrategy: String = "RAG_ASSISTED",
+    val detectedTone: String? = null
 )

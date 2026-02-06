@@ -15,14 +15,16 @@ data class ScoredGlossary(
 class GlossarySearchService(
     private val glossaryRepository: GlossaryRepository,
     private val glossaryTokenRepository: GlossaryTokenRepository,
-    private val tokenizationService: TokenizationService
+    private val tokenizationService: TokenizationService,
+    private val morphologyService: KoreanMorphologyService
 ) {
 
     /**
-     * 3-tier relevance search:
+     * 4-tier relevance search:
      * 1. Exact match (score: 100)
-     * 2. Token-based match (score: up to 60, weighted by token length)
-     * 3. LIKE fallback on individual words (score: 30)
+     * 2. Stem-exact match (score: 90)
+     * 3. Token-based match (score: up to 60, weighted by token length)
+     * 4. LIKE fallback on individual words (score: 30)
      *
      * Page context bonus: +15 if pageUrl matches
      */
@@ -37,7 +39,23 @@ class GlossarySearchService(
             scoredResults[id] = ScoredGlossary(glossary, 100.0, "exact")
         }
 
-        // Tier 2: Token-based match
+        // Tier 2: Stem-exact match
+        val words = tokenizationService.splitIntoWords(trimmedInput)
+        val allStems = mutableSetOf<String>()
+        for (word in words) {
+            val stemCandidates = morphologyService.stem(word)
+            allStems.addAll(stemCandidates)
+        }
+        if (allStems.isNotEmpty()) {
+            val stemMatches = glossaryRepository.findByKoIn(allStems.toList())
+            for (glossary in stemMatches) {
+                val id = glossary.id ?: continue
+                if (scoredResults.containsKey(id)) continue
+                scoredResults[id] = ScoredGlossary(glossary, 90.0, "stem-exact")
+            }
+        }
+
+        // Tier 3: Token-based match
         val inputTokens = tokenizationService.tokenize(trimmedInput)
         if (inputTokens.isNotEmpty()) {
             val matchedTokenEntries = glossaryTokenRepository.findByTokenIn(inputTokens)
@@ -61,9 +79,8 @@ class GlossarySearchService(
             }
         }
 
-        // Tier 3: LIKE fallback on individual words (if not enough results)
+        // Tier 4: LIKE fallback on individual words (if not enough results)
         if (scoredResults.size < limit) {
-            val words = tokenizationService.splitIntoWords(trimmedInput)
             for (word in words) {
                 if (word.length < 2) continue
                 val likeMatches = glossaryRepository.findByKoLike(word)
