@@ -93,10 +93,10 @@ class GlossarySearchService(
             }
         }
 
-        // Page context bonus
+        // Page context bonus (prefix match for sub-pages like /artist/:id)
         if (!pageUrl.isNullOrBlank()) {
             for ((id, scored) in scoredResults) {
-                if (scored.glossary.pageUrl == pageUrl) {
+                if (scored.glossary.pageUrl.startsWith(pageUrl) || pageUrl.startsWith(scored.glossary.pageUrl)) {
                     scoredResults[id] = scored.copy(score = scored.score + 15.0)
                 }
             }

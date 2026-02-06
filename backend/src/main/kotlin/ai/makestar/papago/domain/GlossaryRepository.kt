@@ -24,5 +24,9 @@ interface GlossaryRepository : JpaRepository<Glossary, Long> {
 
     fun findByPageUrl(pageUrl: String, pageable: Pageable): Page<Glossary>
 
+    fun findByPageUrlStartingWith(pageUrlPrefix: String, pageable: Pageable): Page<Glossary>
+
     fun findByKoContainingAndPageUrl(query: String, pageUrl: String, pageable: Pageable): Page<Glossary>
+
+    fun findByKoContainingAndPageUrlStartingWith(query: String, pageUrlPrefix: String, pageable: Pageable): Page<Glossary>
 }

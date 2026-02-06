@@ -67,13 +67,13 @@ class GlossaryController(
 
         val glossaryPage: Page<Glossary> = when {
             !search.isNullOrBlank() && !pageUrl.isNullOrBlank() -> {
-                glossaryRepository.findByKoContainingAndPageUrl(search, pageUrl, pageRequest)
+                glossaryRepository.findByKoContainingAndPageUrlStartingWith(search, pageUrl, pageRequest)
             }
             !search.isNullOrBlank() -> {
                 glossaryRepository.findByKoContaining(search, pageRequest)
             }
             !pageUrl.isNullOrBlank() -> {
-                glossaryRepository.findByPageUrl(pageUrl, pageRequest)
+                glossaryRepository.findByPageUrlStartingWith(pageUrl, pageRequest)
             }
             else -> {
                 glossaryRepository.findAll(pageRequest)
