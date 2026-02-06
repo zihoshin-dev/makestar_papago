@@ -28,6 +28,17 @@ data class GlossaryPage(
     val size: Int
 )
 
+data class GlossaryUpdateRequest(
+    val ko: String? = null,
+    val en: String? = null,
+    val ja: String? = null,
+    val zhHans: String? = null,
+    val zhHant: String? = null,
+    val es: String? = null,
+    val de: String? = null,
+    val fr: String? = null
+)
+
 @RestController
 @RequestMapping("/api/glossary")
 class GlossaryController(
@@ -64,6 +75,24 @@ class GlossaryController(
             number = glossaryPage.number,
             size = glossaryPage.size
         )
+    }
+
+    @PutMapping("/{id}")
+    fun updateGlossary(@PathVariable id: Long, @RequestBody request: GlossaryUpdateRequest): GlossaryResponse {
+        val glossary = glossaryRepository.findById(id)
+            .orElseThrow { RuntimeException("Glossary not found: $id") }
+
+        request.ko?.let { glossary.ko = it }
+        request.en?.let { glossary.en = it }
+        request.ja?.let { glossary.ja = it }
+        request.zhHans?.let { glossary.zhHans = it }
+        request.zhHant?.let { glossary.zhHant = it }
+        request.es?.let { glossary.es = it }
+        request.de?.let { glossary.de = it }
+        request.fr?.let { glossary.fr = it }
+
+        val saved = glossaryRepository.save(glossary)
+        return saved.toResponse()
     }
 
     private fun Glossary.toResponse() = GlossaryResponse(

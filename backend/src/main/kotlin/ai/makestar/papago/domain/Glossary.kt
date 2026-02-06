@@ -21,22 +21,22 @@ class Glossary(
 
     // System DB (기본 번역)
     @Column(columnDefinition = "TEXT")
-    val ko: String,
+    var ko: String,
 
     @Column(columnDefinition = "TEXT")
-    val en: String,
+    var en: String,
 
     @Column(columnDefinition = "TEXT")
-    val zhHans: String,
+    var zhHans: String,
 
     @Column(columnDefinition = "TEXT")
-    val ja: String,
+    var ja: String,
 
     @Column(columnDefinition = "TEXT")
-    val es: String,
+    var es: String,
 
     @Column(columnDefinition = "TEXT")
-    val zhHant: String,
+    var zhHant: String,
 
     // DeepL 번역 변형
     @Column(columnDefinition = "TEXT")
@@ -53,21 +53,21 @@ class Glossary(
 
     // 비즈니스팀 수정본
     @Column(columnDefinition = "TEXT")
-    val zhHantTaiwan: String = "",
+    var zhHantTaiwan: String = "",
 
     @Column(columnDefinition = "TEXT")
-    val zhHansChina: String = "",
+    var zhHansChina: String = "",
 
     @Column(columnDefinition = "TEXT")
-    val enNorthAmerica: String = "",
+    var enNorthAmerica: String = "",
 
     @Column(columnDefinition = "TEXT")
-    val jaJapan: String = "",
+    var jaJapan: String = "",
 
     // 추가 언어
     @Column(columnDefinition = "TEXT")
-    val de: String = "",
+    var de: String = "",
 
     @Column(columnDefinition = "TEXT")
-    val fr: String = ""
+    var fr: String = ""
 )
