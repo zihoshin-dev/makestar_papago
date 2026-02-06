@@ -8,12 +8,41 @@ import org.springframework.web.reactive.function.client.WebClient
 class TranslationService(
     private val glossarySearchService: GlossarySearchService,
     private val feedbackService: FeedbackService,
+    private val inputValidationService: InputValidationService,
     @Value("\${api.claude.key}") private val claudeApiKey: String
 ) {
     private val webClient = WebClient.builder().build()
 
+    companion object {
+        private val LANGUAGE_NAMES = mapOf(
+            "en" to "English",
+            "ja" to "Japanese",
+            "zh-hans" to "Simplified Chinese",
+            "zh-hant" to "Traditional Chinese",
+            "es" to "Spanish",
+            "de" to "German",
+            "fr" to "French"
+        )
+
+        private const val UNTRANSLATABLE_MARKER = "[UNTRANSLATABLE]"
+        private const val GLOSSARY_MIN_SCORE = 20.0
+    }
+
     fun translate(text: String, targetLang: String, pageUrl: String? = null): TranslationResult {
-        // 0. Check approved translation cache first
+        // 0. Input validation
+        val validation = inputValidationService.validate(text)
+        if (!validation.isValid) {
+            val errorMessage = inputValidationService.getErrorMessage(validation.reason ?: "UNKNOWN")
+            return TranslationResult(
+                originalText = text,
+                translatedText = errorMessage,
+                targetLang = targetLang,
+                contextUsed = "",
+                isValidationError = true
+            )
+        }
+
+        // 1. Check approved translation cache first
         val approved = feedbackService.findApprovedTranslation(text, targetLang)
         if (approved != null) {
             val historyId = feedbackService.recordTranslation(
@@ -33,14 +62,15 @@ class TranslationService(
             )
         }
 
-        // 1. RAG: Score-based glossary search
+        // 2. RAG: Score-based glossary search with relevance threshold
         val scoredMatches = glossarySearchService.search(text, pageUrl)
+            .filter { it.score >= GLOSSARY_MIN_SCORE }
 
         val glossaryContext = if (scoredMatches.isNotEmpty()) {
             "Use the following Makestar-specific terminology if applicable:\n" +
             scoredMatches.joinToString("\n") {
                 val bestTranslation = glossarySearchService.getBestTranslation(it.glossary, targetLang)
-                "- Original: ${it.glossary.ko} -> Target: $bestTranslation (Context: ${it.glossary.pageUrl}, Relevance: ${it.matchType})"
+                "- \"${it.glossary.ko}\" -> \"$bestTranslation\" (Relevance: ${it.matchType}, Score: ${it.score.toInt()})"
             }
         } else ""
 
@@ -54,10 +84,14 @@ class TranslationService(
             )
         }
 
-        // 2. Call Claude API with RAG context
-        val translatedText = callClaudeApi(text, targetLang, glossaryContext)
+        // 3. Call Claude API with RAG context
+        val langName = LANGUAGE_NAMES[targetLang.lowercase()] ?: targetLang
+        val rawTranslation = callClaudeApi(text, langName, glossaryContext)
 
-        // 3. Record translation history
+        // 4. Post-processing validation
+        val translatedText = postProcessTranslation(rawTranslation, text, langName)
+
+        // 5. Record translation history
         val historyId = feedbackService.recordTranslation(
             sourceText = text,
             targetLang = targetLang,
@@ -77,20 +111,54 @@ class TranslationService(
         )
     }
 
-    private fun callClaudeApi(text: String, targetLang: String, context: String): String {
-        val prompt = """
-            You are a professional translator specializing in K-Pop fandom and commerce (Makestar).
-            Translate the following Korean text to $targetLang.
+    @Suppress("UNUSED_PARAMETER")
+    private fun postProcessTranslation(rawTranslation: String, originalText: String, targetLang: String): String {
+        var result = rawTranslation.trim()
 
-            $context
+        // Remove wrapping quotes if present
+        if ((result.startsWith("\"") && result.endsWith("\"")) ||
+            (result.startsWith("'") && result.endsWith("'"))) {
+            result = result.substring(1, result.length - 1).trim()
+        }
 
-            Instructions:
-            1. Maintain the tone and style appropriate for K-Pop fans.
-            2. If specific terminology is provided in the context, use it.
-            3. Return ONLY the translated text without any explanation.
+        // Handle [UNTRANSLATABLE] marker
+        if (result.contains(UNTRANSLATABLE_MARKER, ignoreCase = true)) {
+            return "번역할 수 없는 텍스트예요."
+        }
 
-            Text to translate: $text
-        """.trimIndent()
+        // Handle empty or error responses
+        if (result.isBlank() || result == "Translation Failed") {
+            return "번역에 실패했어요. 다시 시도해 주세요."
+        }
+
+        // Detect when translation equals original (Claude returned input as-is)
+        val normalizedResult = result.replace("\\s+".toRegex(), "").lowercase()
+        val normalizedOriginal = originalText.replace("\\s+".toRegex(), "").lowercase()
+        if (normalizedResult == normalizedOriginal && originalText.length > 1) {
+            return "번역할 수 없는 텍스트예요."
+        }
+
+        return result
+    }
+
+    private fun callClaudeApi(text: String, targetLangName: String, context: String): String {
+        val systemPrompt = """You are a professional Korean-to-$targetLangName translator specializing in K-Pop fandom and e-commerce (Makestar platform).
+
+Rules:
+1. Translate the Korean text accurately into natural $targetLangName.
+2. If Makestar-specific terminology is provided, use those exact translations.
+3. Maintain the tone and nuance appropriate for K-Pop fans.
+4. Return ONLY the translated text. No explanations, labels, or quotes.
+5. If the input text is meaningless, gibberish, or cannot be translated (e.g., random characters, keyboard mashing), respond with exactly: $UNTRANSLATABLE_MARKER
+6. Never return the original Korean text as the translation.""".trimIndent()
+
+        val userMessage = buildString {
+            if (context.isNotBlank()) {
+                appendLine(context)
+                appendLine()
+            }
+            append("Translate to $targetLangName: $text")
+        }
 
         return try {
             val response = webClient.post()
@@ -101,8 +169,9 @@ class TranslationService(
                 .bodyValue(mapOf(
                     "model" to "claude-sonnet-4-20250514",
                     "max_tokens" to 4096,
+                    "system" to systemPrompt,
                     "messages" to listOf(
-                        mapOf("role" to "user", "content" to prompt)
+                        mapOf("role" to "user", "content" to userMessage)
                     )
                 ))
                 .retrieve()
@@ -133,5 +202,6 @@ data class TranslationResult(
     val matchedGlossaryIds: List<Long> = emptyList(),
     val matchScores: List<MatchScore> = emptyList(),
     val historyId: Long? = null,
-    val isFromCache: Boolean = false
+    val isFromCache: Boolean = false,
+    val isValidationError: Boolean = false
 )
