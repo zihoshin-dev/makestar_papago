@@ -123,9 +123,14 @@ class TranslationService(
             result = result.substring(1, result.length - 1).trim()
         }
 
-        // Handle [UNTRANSLATABLE] marker
-        if (result.contains(UNTRANSLATABLE_MARKER, ignoreCase = true)) {
+        // Handle [UNTRANSLATABLE] marker (but not for Korean jamo input - those are K-Pop slang)
+        val isKoreanJamo = originalText.trim().all { it.isWhitespace() || it in '\u3131'..'\u318E' }
+        if (result.contains(UNTRANSLATABLE_MARKER, ignoreCase = true) && !isKoreanJamo) {
             return "번역할 수 없는 텍스트예요."
+        }
+        // If Claude returned UNTRANSLATABLE for jamo, provide a fallback
+        if (result.contains(UNTRANSLATABLE_MARKER, ignoreCase = true) && isKoreanJamo) {
+            return originalText.trim()
         }
 
         // Handle empty or error responses
@@ -137,8 +142,7 @@ class TranslationService(
         // But allow short Korean consonant/vowel expressions (K-Pop internet slang)
         val normalizedResult = result.replace("\\s+".toRegex(), "").lowercase()
         val normalizedOriginal = originalText.replace("\\s+".toRegex(), "").lowercase()
-        val isKoreanSlang = originalText.trim().all { it.isWhitespace() || it in '\u3131'..'\u318E' }
-        if (normalizedResult == normalizedOriginal && originalText.length > 1 && !isKoreanSlang) {
+        if (normalizedResult == normalizedOriginal && originalText.length > 1 && !isKoreanJamo) {
             return "번역할 수 없는 텍스트예요."
         }
 
@@ -154,9 +158,9 @@ Rules:
 3. Maintain the tone and nuance appropriate for K-Pop fans.
 4. Return ONLY the translated text. No explanations, labels, or quotes.
 5. Korean internet slang using consonants/vowels MUST be translated naturally:
-   - ㅋㅋㅋ / ㅋㅋ = laughter (hahaha, lol)
+   - ㅋㅋ / ㅋㅋㅋ = laughter (hahaha, lol)
    - ㅠㅠ / ㅜㅜ = crying/sadness (so sad, *cries*)
-   - ㅇㅇ = agreement (yeah, yes)
+   - ㅇㅇ / ㅇㅇㅇ = agreement/acknowledgment (yeah, yes, yep)
    - ㅎㅎ = soft laughter (hehe)
    - ㄱㅅ = thanks (short for 감사)
    - ㄴㄴ = no no (short for 노노)
@@ -164,8 +168,8 @@ Rules:
    - ㄷㄷ = trembling/shocked (wow, omg)
    - ㅂㅂ = bye bye
    - ㅁㅊ = crazy (abbreviation)
-   These are common K-Pop fan expressions, NOT gibberish.
-6. If the input is truly meaningless random characters, respond with exactly: $UNTRANSLATABLE_MARKER
+   IMPORTANT: More repeated characters = more emphasis (e.g., ㅋㅋㅋㅋㅋ = lots of laughter, ㅠㅠㅠㅠ = very sad, ㅇㅇㅇ = emphatic yes). ANY input made entirely of Korean consonants or vowels is K-Pop fan slang and MUST be translated. NEVER mark them as untranslatable.
+6. If the input is truly meaningless random NON-KOREAN characters, respond with exactly: $UNTRANSLATABLE_MARKER
 7. Never return the original Korean text as the translation.""".trimIndent()
 
         val userMessage = buildString {
