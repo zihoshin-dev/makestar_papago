@@ -112,11 +112,14 @@ class GlossarySearchService(
      */
     fun getBestTranslation(glossary: Glossary, targetLang: String): String {
         return when (targetLang.lowercase()) {
+            "ko" -> glossary.ko
             "en" -> glossary.enNorthAmerica.ifBlank { glossary.en }
             "ja" -> glossary.jaJapan.ifBlank { glossary.ja }
             "zh-hans", "zh_hans" -> glossary.zhHansChina.ifBlank { glossary.zhHans }
             "zh-hant", "zh_hant" -> glossary.zhHantTaiwan.ifBlank { glossary.zhHant }
             "es" -> glossary.es
+            "de" -> glossary.de
+            "fr" -> glossary.fr
             else -> glossary.enNorthAmerica.ifBlank { glossary.en }
         }
     }

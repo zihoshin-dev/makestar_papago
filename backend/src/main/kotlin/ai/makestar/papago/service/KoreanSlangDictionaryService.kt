@@ -14,6 +14,8 @@ data class SlangEntry(
     val zhHans: String,
     val zhHant: String,
     val es: String,
+    val de: String = "",
+    val fr: String = "",
     val intensity: String
 )
 
@@ -107,6 +109,8 @@ class KoreanSlangDictionaryService(
             "zh-hans", "zh_hans" -> entry.zhHans
             "zh-hant", "zh_hant" -> entry.zhHant
             "es" -> entry.es
+            "de" -> entry.de.ifBlank { entry.en }
+            "fr" -> entry.fr.ifBlank { entry.en }
             else -> entry.en
         }
     }
