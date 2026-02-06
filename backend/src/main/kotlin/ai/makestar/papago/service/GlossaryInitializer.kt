@@ -2,52 +2,112 @@ package ai.makestar.papago.service
 
 import ai.makestar.papago.domain.Glossary
 import ai.makestar.papago.domain.GlossaryRepository
+import ai.makestar.papago.domain.GlossaryToken
+import ai.makestar.papago.domain.GlossaryTokenRepository
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import jakarta.annotation.PostConstruct
+import org.springframework.core.io.ClassPathResource
 import org.springframework.stereotype.Service
 import java.io.File
 
 @Service
 class GlossaryInitializer(
     private val glossaryRepository: GlossaryRepository,
+    private val glossaryTokenRepository: GlossaryTokenRepository,
+    private val tokenizationService: TokenizationService,
     private val objectMapper: ObjectMapper
 ) {
-    // clawd 워크스페이스의 데이터를 프로젝트로 복사하거나 직접 읽음
-    private val jsonPath = "/Users/zihoshin/clawd/data-collection/sheet_db.json"
+    private val localJsonPath = "/Users/zihoshin/clawd/data-collection/sheet_db.json"
 
     @PostConstruct
     fun init() {
         if (glossaryRepository.count() > 0) return
 
-        val file = File(jsonPath)
-        if (!file.exists()) return
-
-        val root: JsonNode = objectMapper.readTree(file)
+        val jsonContent = loadJsonContent() ?: return
+        val root: JsonNode = objectMapper.readTree(jsonContent)
         val values = root.get("values") ?: return
 
         val glossaries = mutableListOf<Glossary>()
-        
-        // 0, 1번 로우는 헤더이므로 2번 인덱스부터 시작
+
+        // Row 0-1 are headers; data starts at index 2
         for (i in 2 until values.size()) {
             val row = values.get(i)
             if (row.size() < 6) continue
 
             glossaries.add(
                 Glossary(
-                    pageUrl = row.get(0)?.asText() ?: "",
-                    keyName = row.get(1)?.asText() ?: "",
-                    ko = row.get(2)?.asText() ?: "",
-                    en = row.get(3)?.asText() ?: "",
-                    zhHans = row.get(4)?.asText() ?: "",
-                    ja = row.get(5)?.asText() ?: "",
-                    es = if (row.size() > 6) row.get(6)?.asText() ?: "" else "",
-                    zhHant = if (row.size() > 7) row.get(7)?.asText() ?: "" else ""
+                    pageUrl = row.safeText(0),
+                    keyName = row.safeText(1),
+                    ko = row.safeText(2),
+                    en = row.safeText(3),
+                    zhHans = row.safeText(4),
+                    ja = row.safeText(5),
+                    es = row.safeText(6),
+                    zhHant = row.safeText(7),
+                    // DeepL variants
+                    zhHantFromEn = row.safeText(8),
+                    zhHantFromKo = row.safeText(9),
+                    zhHansFromEn = row.safeText(10),
+                    zhHansFromKo = row.safeText(11),
+                    // Business team corrections
+                    zhHantTaiwan = row.safeText(12),
+                    zhHansChina = row.safeText(13),
+                    enNorthAmerica = row.safeText(14),
+                    jaJapan = row.safeText(15)
                 )
             )
         }
-        
+
         glossaryRepository.saveAll(glossaries)
-        println("Successfully initialized ${glossaries.size} glossary items.")
+        println("Initialized ${glossaries.size} glossary items.")
+
+        // Build token index
+        buildTokenIndex(glossaries)
+    }
+
+    private fun buildTokenIndex(glossaries: List<Glossary>) {
+        val tokens = mutableListOf<GlossaryToken>()
+
+        for (glossary in glossaries) {
+            val glossaryId = glossary.id ?: continue
+            val koTokens = tokenizationService.tokenizeForIndex(glossary.ko)
+
+            for (token in koTokens) {
+                tokens.add(
+                    GlossaryToken(
+                        token = token,
+                        glossaryId = glossaryId,
+                        tokenLength = token.length
+                    )
+                )
+            }
+        }
+
+        glossaryTokenRepository.saveAll(tokens)
+        println("Built token index: ${tokens.size} tokens for ${glossaries.size} glossary items.")
+    }
+
+    private fun loadJsonContent(): String? {
+        // 1. Try classpath resource first (works in Docker/JAR)
+        try {
+            val resource = ClassPathResource("data/sheet_db.json")
+            if (resource.exists()) {
+                return resource.inputStream.bufferedReader().readText()
+            }
+        } catch (_: Exception) { }
+
+        // 2. Fallback to local file path (development only)
+        val localFile = File(localJsonPath)
+        if (localFile.exists()) {
+            return localFile.readText()
+        }
+
+        println("WARNING: sheet_db.json not found in classpath or local path.")
+        return null
+    }
+
+    private fun JsonNode.safeText(index: Int): String {
+        return if (this.size() > index) this.get(index)?.asText() ?: "" else ""
     }
 }
