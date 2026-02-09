@@ -1,8 +1,10 @@
 package ai.makestar.papago.service
 
+import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
 import org.springframework.web.reactive.function.client.WebClient
+import java.time.Duration
 
 @Service
 class TranslationService(
@@ -20,6 +22,7 @@ class TranslationService(
     @Value("\${api.claude.key}") private val claudeApiKey: String
 ) {
     private val webClient = WebClient.builder().build()
+    private val logger = LoggerFactory.getLogger(TranslationService::class.java)
 
     companion object {
         private val LANGUAGE_NAMES = mapOf(
@@ -28,6 +31,8 @@ class TranslationService(
             "ja" to "Japanese",
             "zh-hans" to "Simplified Chinese",
             "zh-hant" to "Traditional Chinese",
+            "zh_hans" to "Simplified Chinese",
+            "zh_hant" to "Traditional Chinese",
             "es" to "Spanish",
             "de" to "German",
             "fr" to "French"
@@ -128,6 +133,8 @@ class TranslationService(
                 "zh-hans", "zh_hans" -> exactMatch.zhHans.isNotBlank()
                 "zh-hant", "zh_hant" -> exactMatch.zhHant.isNotBlank()
                 "es" -> exactMatch.es.isNotBlank()
+                "de" -> exactMatch.de.isNotBlank()
+                "fr" -> exactMatch.fr.isNotBlank()
                 else -> false
             }
 
@@ -337,13 +344,14 @@ class TranslationService(
                 ))
                 .retrieve()
                 .bodyToMono(Map::class.java)
-                .block()
+                .block(Duration.ofSeconds(30))
 
             @Suppress("UNCHECKED_CAST")
             val content = response?.get("content") as? List<Map<String, Any>>
             content?.firstOrNull()?.get("text") as? String ?: "Translation Failed"
         } catch (e: Exception) {
-            "Error: ${e.message}"
+            logger.error("Claude API call failed", e)
+            "번역에 실패했어요. 다시 시도해 주세요."
         }
     }
 
@@ -439,13 +447,14 @@ Rules:
                 ))
                 .retrieve()
                 .bodyToMono(Map::class.java)
-                .block()
+                .block(Duration.ofSeconds(30))
 
             @Suppress("UNCHECKED_CAST")
             val content = response?.get("content") as? List<Map<String, Any>>
             content?.firstOrNull()?.get("text") as? String ?: "Translation Failed"
         } catch (e: Exception) {
-            "Error: ${e.message}"
+            logger.error("Claude API call failed", e)
+            "번역에 실패했어요. 다시 시도해 주세요."
         }
     }
 }

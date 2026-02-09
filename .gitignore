@@ -1,0 +1,22 @@
+# OS
+.DS_Store
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Environment & Secrets
+.env
+.env.*
+*.local
+
+# Deployment scripts with secrets
+backend/deploy.sh
+
+# Build outputs
+backend/build/
+backend/.gradle/
+
+# OMC state
+.omc/

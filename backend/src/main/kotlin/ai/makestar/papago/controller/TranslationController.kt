@@ -2,6 +2,7 @@ package ai.makestar.papago.controller
 
 import ai.makestar.papago.service.TranslationResult
 import ai.makestar.papago.service.TranslationService
+import jakarta.validation.Valid
 import org.springframework.web.bind.annotation.*
 
 @RestController
@@ -10,7 +11,7 @@ class TranslationController(
     private val translationService: TranslationService
 ) {
     @PostMapping
-    fun translate(@RequestBody request: TranslationRequest): TranslationResult {
+    fun translate(@Valid @RequestBody request: TranslationRequest): TranslationResult {
         return translationService.translate(request.text, request.targetLang, request.pageUrl, request.sourceLang)
     }
 }

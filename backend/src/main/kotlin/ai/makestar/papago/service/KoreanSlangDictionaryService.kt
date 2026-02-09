@@ -2,9 +2,10 @@ package ai.makestar.papago.service
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
+import jakarta.annotation.PostConstruct
+import org.slf4j.LoggerFactory
 import org.springframework.core.io.ClassPathResource
 import org.springframework.stereotype.Service
-import jakarta.annotation.PostConstruct
 
 data class SlangEntry(
     val input: String,
@@ -29,6 +30,7 @@ data class SlangResult(
 class KoreanSlangDictionaryService(
     private val objectMapper: ObjectMapper
 ) {
+    private val logger = LoggerFactory.getLogger(KoreanSlangDictionaryService::class.java)
     private val slangMap = mutableMapOf<String, SlangEntry>()
     // Map of base patterns for repeated character matching (e.g., ㅋ -> ㅋㅋ entries)
     private val repeatPatterns = mutableMapOf<Char, List<SlangEntry>>()
@@ -51,7 +53,7 @@ class KoreanSlangDictionaryService(
                 }
         } catch (e: Exception) {
             // Log but don't fail - slang dictionary is optional
-            println("Warning: Could not load slang dictionary: ${e.message}")
+            logger.warn("Could not load slang dictionary: ${e.message}")
         }
     }
 

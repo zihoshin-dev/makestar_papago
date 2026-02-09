@@ -12,6 +12,7 @@ class InputValidationService {
 
     companion object {
         private const val MIN_MEANINGFUL_LENGTH = 2
+        private const val MAX_TEXT_LENGTH = 3000
     }
 
     fun validate(text: String): ValidationResult {
@@ -23,6 +24,10 @@ class InputValidationService {
 
         if (trimmed.length < MIN_MEANINGFUL_LENGTH) {
             return ValidationResult(false, "TOO_SHORT")
+        }
+
+        if (trimmed.length > MAX_TEXT_LENGTH) {
+            return ValidationResult(false, "TOO_LONG")
         }
 
         // Check purely numeric/symbol input (no actual letters including Korean jamo)
@@ -41,6 +46,7 @@ class InputValidationService {
         return when (reason) {
             "EMPTY" -> "텍스트를 입력해 주세요."
             "TOO_SHORT" -> "번역할 수 있는 텍스트를 입력해 주세요."
+            "TOO_LONG" -> "텍스트가 너무 길어요. 3000자 이하로 입력해 주세요."
             "NO_LETTERS" -> "번역할 수 있는 텍스트를 입력해 주세요."
             else -> "번역할 수 없는 텍스트예요."
         }

@@ -2,6 +2,7 @@ package ai.makestar.papago.service
 
 import ai.makestar.papago.domain.ApprovedTranslation
 import ai.makestar.papago.domain.ApprovedTranslationRepository
+import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
 
 @Service
@@ -10,7 +11,8 @@ class TranslationExampleService(
 ) {
 
     fun findSimilarExamples(sourceText: String, targetLang: String, limit: Int = 5): List<TranslationExample> {
-        val candidates = approvedTranslationRepository.findByTargetLangOrderByUsageCountDesc(targetLang)
+        val pageable = PageRequest.of(0, 50)
+        val candidates = approvedTranslationRepository.findByTargetLangOrderByUsageCountDesc(targetLang, pageable)
         if (candidates.isEmpty()) return emptyList()
 
         val inputWords = sourceText.split(Regex("\\s+")).filter { it.length >= 2 }.toSet()

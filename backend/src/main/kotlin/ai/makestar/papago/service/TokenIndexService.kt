@@ -5,6 +5,7 @@ import ai.makestar.papago.domain.GlossaryMultiLangToken
 import ai.makestar.papago.domain.GlossaryMultiLangTokenRepository
 import ai.makestar.papago.domain.GlossaryToken
 import ai.makestar.papago.domain.GlossaryTokenRepository
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 
 @Service
@@ -13,6 +14,7 @@ class TokenIndexService(
     private val multiLangTokenRepository: GlossaryMultiLangTokenRepository,
     private val tokenizationService: TokenizationService
 ) {
+    private val logger = LoggerFactory.getLogger(TokenIndexService::class.java)
 
     companion object {
         private val MULTI_LANG_COLUMNS = listOf("en", "ja", "zh-hans", "zh-hant", "es", "de", "fr")
@@ -37,7 +39,7 @@ class TokenIndexService(
         }
 
         glossaryTokenRepository.saveAll(tokens)
-        println("Built token index: ${tokens.size} tokens for ${glossaries.size} glossary items.")
+        logger.info("Built token index: ${tokens.size} tokens for ${glossaries.size} glossary items.")
     }
 
     fun buildMultiLangIndex(glossaries: List<Glossary>) {
@@ -65,7 +67,7 @@ class TokenIndexService(
         }
 
         multiLangTokenRepository.saveAll(tokens)
-        println("Built multi-lang token index: ${tokens.size} tokens for ${glossaries.size} glossary items.")
+        logger.info("Built multi-lang token index: ${tokens.size} tokens for ${glossaries.size} glossary items.")
     }
 
     fun addToIndex(glossary: Glossary) {

@@ -1,6 +1,7 @@
 package ai.makestar.papago.service
 
 import ai.makestar.papago.domain.ApprovedTranslationRepository
+import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
 
 @Service
@@ -18,7 +19,8 @@ class ConsistencyService(
         val sourceWords = sourceText.split(Regex("\\s+")).filter { it.length >= 2 }
         if (sourceWords.isEmpty()) return issues
 
-        val approvedTranslations = approvedTranslationRepository.findByTargetLangOrderByUsageCountDesc(targetLang)
+        val pageable = PageRequest.of(0, 100)
+        val approvedTranslations = approvedTranslationRepository.findByTargetLangOrderByUsageCountDesc(targetLang, pageable)
         if (approvedTranslations.isEmpty()) return issues
 
         for (approved in approvedTranslations) {

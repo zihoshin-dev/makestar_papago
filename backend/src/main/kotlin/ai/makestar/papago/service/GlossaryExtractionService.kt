@@ -3,6 +3,7 @@ package ai.makestar.papago.service
 import ai.makestar.papago.domain.CandidateGlossaryEntry
 import ai.makestar.papago.domain.CandidateGlossaryEntryRepository
 import ai.makestar.papago.domain.GlossaryRepository
+import jakarta.annotation.PostConstruct
 import org.springframework.scheduling.annotation.Async
 import org.springframework.stereotype.Service
 import java.time.LocalDateTime
@@ -13,6 +14,16 @@ class GlossaryExtractionService(
     private val glossaryRepository: GlossaryRepository,
     private val tokenizationService: TokenizationService
 ) {
+    private var existingKoTerms: Set<String> = emptySet()
+
+    @PostConstruct
+    fun initializeCache() {
+        refreshExistingTermsCache()
+    }
+
+    fun refreshExistingTermsCache() {
+        existingKoTerms = glossaryRepository.findAll().map { it.ko.lowercase() }.toSet()
+    }
 
     @Async
     fun extractCandidates(
@@ -24,12 +35,9 @@ class GlossaryExtractionService(
         val words = tokenizationService.splitIntoWords(sourceText)
         if (words.isEmpty()) return
 
-        // Get existing glossary ko terms for quick lookup
-        val existingTerms = glossaryRepository.findAll().map { it.ko.lowercase() }.toSet()
-
         for (word in words) {
             if (word.length < 2) continue
-            if (word.lowercase() in existingTerms) continue
+            if (word.lowercase() in existingKoTerms) continue
             if (isParticleOrSuffix(word)) continue
 
             val confidenceScore = calculateConfidence(word, sourceText, pageUrl)

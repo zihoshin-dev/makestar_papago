@@ -2,6 +2,7 @@ package ai.makestar.papago.service
 
 import ai.makestar.papago.domain.*
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 import java.security.MessageDigest
 import java.time.LocalDateTime
 
@@ -29,6 +30,7 @@ class FeedbackService(
         return historyRepository.save(history).id!!
     }
 
+    @Transactional
     fun submitFeedback(
         historyId: Long,
         status: TranslationStatus,

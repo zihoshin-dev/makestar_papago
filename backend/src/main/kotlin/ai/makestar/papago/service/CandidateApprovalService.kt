@@ -5,6 +5,7 @@ import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 import java.time.LocalDateTime
 
 @Service
@@ -29,6 +30,7 @@ class CandidateApprovalService(
         }
     }
 
+    @Transactional
     fun approve(candidateId: Long): CandidateGlossaryEntry {
         val candidate = candidateRepository.findById(candidateId)
             .orElseThrow { RuntimeException("Candidate not found: $candidateId") }
@@ -59,6 +61,7 @@ class CandidateApprovalService(
         return candidateRepository.save(candidate)
     }
 
+    @Transactional
     fun reject(candidateId: Long): CandidateGlossaryEntry {
         val candidate = candidateRepository.findById(candidateId)
             .orElseThrow { RuntimeException("Candidate not found: $candidateId") }
@@ -68,6 +71,7 @@ class CandidateApprovalService(
         return candidateRepository.save(candidate)
     }
 
+    @Transactional
     fun batchProcess(ids: List<Long>, action: String): List<CandidateGlossaryEntry> {
         val candidates = candidateRepository.findByIdIn(ids)
         return candidates.map { candidate ->

@@ -7,11 +7,13 @@ import ai.makestar.papago.domain.GlossaryTokenRepository
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import jakarta.annotation.PostConstruct
+import org.slf4j.LoggerFactory
 import org.springframework.boot.context.event.ApplicationReadyEvent
 import org.springframework.context.event.EventListener
 import org.springframework.core.io.ClassPathResource
 import org.springframework.scheduling.annotation.Async
 import org.springframework.stereotype.Service
+import org.springframework.beans.factory.annotation.Value
 import java.io.File
 
 @Service
@@ -20,9 +22,10 @@ class GlossaryInitializer(
     private val glossaryTokenRepository: GlossaryTokenRepository,
     private val multiLangTokenRepository: GlossaryMultiLangTokenRepository,
     private val tokenIndexService: TokenIndexService,
-    private val objectMapper: ObjectMapper
+    private val objectMapper: ObjectMapper,
+    @Value("\${glossary.local.path:}") private val localJsonPath: String
 ) {
-    private val localJsonPath = "/Users/zihoshin/clawd/data-collection/sheet_db.json"
+    private val logger = LoggerFactory.getLogger(GlossaryInitializer::class.java)
 
     @PostConstruct
     fun init() {
@@ -67,7 +70,7 @@ class GlossaryInitializer(
         }
 
         glossaryRepository.saveAll(glossaries)
-        println("Initialized ${glossaries.size} glossary items.")
+        logger.info("Initialized ${glossaries.size} glossary items.")
     }
 
     @Async
@@ -78,13 +81,13 @@ class GlossaryInitializer(
 
         // Build Korean token index
         if (glossaryTokenRepository.count() == 0L) {
-            println("Building Korean token index asynchronously...")
+            logger.info("Building Korean token index asynchronously...")
             tokenIndexService.buildTokenIndex(glossaries)
         }
 
         // Build multi-language token index
         if (multiLangTokenRepository.count() == 0L) {
-            println("Building multi-language token index asynchronously...")
+            logger.info("Building multi-language token index asynchronously...")
             tokenIndexService.buildMultiLangIndex(glossaries)
         }
     }
@@ -99,12 +102,14 @@ class GlossaryInitializer(
         } catch (_: Exception) { }
 
         // 2. Fallback to local file path (development only)
-        val localFile = File(localJsonPath)
-        if (localFile.exists()) {
-            return localFile.readText()
+        if (localJsonPath.isNotBlank()) {
+            val localFile = File(localJsonPath)
+            if (localFile.exists()) {
+                return localFile.readText()
+            }
         }
 
-        println("WARNING: sheet_db.json not found in classpath or local path.")
+        logger.warn("sheet_db.json not found in classpath or local path.")
         return null
     }
 

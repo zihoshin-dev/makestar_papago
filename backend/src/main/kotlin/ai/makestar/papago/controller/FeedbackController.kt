@@ -2,6 +2,9 @@ package ai.makestar.papago.controller
 
 import ai.makestar.papago.domain.TranslationStatus
 import ai.makestar.papago.service.FeedbackService
+import jakarta.validation.Valid
+import jakarta.validation.constraints.Max
+import jakarta.validation.constraints.Min
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 
@@ -13,7 +16,7 @@ class FeedbackController(
     @PostMapping("/{historyId}")
     fun submitFeedback(
         @PathVariable historyId: Long,
-        @RequestBody request: FeedbackRequest
+        @Valid @RequestBody request: FeedbackRequest
     ): ResponseEntity<Map<String, String>> {
         feedbackService.submitFeedback(
             historyId = historyId,
@@ -27,6 +30,7 @@ class FeedbackController(
 
 data class FeedbackRequest(
     val status: String,
+    @field:Min(1) @field:Max(5)
     val rating: Int? = null,
     val correctedText: String? = null
 )
