@@ -1,17 +1,22 @@
 package ai.makestar.papago.service
 
 import ai.makestar.papago.domain.Glossary
+import ai.makestar.papago.domain.GlossaryMultiLangTokenRepository
 import ai.makestar.papago.domain.GlossaryRepository
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import jakarta.annotation.PostConstruct
+import org.springframework.boot.context.event.ApplicationReadyEvent
+import org.springframework.context.event.EventListener
 import org.springframework.core.io.ClassPathResource
+import org.springframework.scheduling.annotation.Async
 import org.springframework.stereotype.Service
 import java.io.File
 
 @Service
 class GlossaryInitializer(
     private val glossaryRepository: GlossaryRepository,
+    private val multiLangTokenRepository: GlossaryMultiLangTokenRepository,
     private val tokenIndexService: TokenIndexService,
     private val objectMapper: ObjectMapper
 ) {
@@ -62,10 +67,17 @@ class GlossaryInitializer(
         glossaryRepository.saveAll(glossaries)
         println("Initialized ${glossaries.size} glossary items.")
 
-        // Build token index
+        // Build Korean token index (fast, needed at startup)
         tokenIndexService.buildTokenIndex(glossaries)
+    }
 
-        // Build multi-language token index
+    @Async
+    @EventListener(ApplicationReadyEvent::class)
+    fun buildMultiLangIndexAsync() {
+        if (multiLangTokenRepository.count() > 0) return
+        val glossaries = glossaryRepository.findAll()
+        if (glossaries.isEmpty()) return
+        println("Building multi-language token index asynchronously...")
         tokenIndexService.buildMultiLangIndex(glossaries)
     }
 
