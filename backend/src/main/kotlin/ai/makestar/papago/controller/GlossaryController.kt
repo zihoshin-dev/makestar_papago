@@ -2,6 +2,7 @@ package ai.makestar.papago.controller
 
 import ai.makestar.papago.domain.Glossary
 import ai.makestar.papago.domain.GlossaryRepository
+import ai.makestar.papago.service.GlossarySearchService
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
@@ -54,15 +55,29 @@ data class GlossaryCreateRequest(
 @RestController
 @RequestMapping("/api/glossary")
 class GlossaryController(
-    private val glossaryRepository: GlossaryRepository
+    private val glossaryRepository: GlossaryRepository,
+    private val glossarySearchService: GlossarySearchService
 ) {
     @GetMapping
     fun getGlossary(
         @RequestParam(defaultValue = "0") page: Int,
         @RequestParam(defaultValue = "50") size: Int,
         @RequestParam(required = false) search: String?,
-        @RequestParam(required = false) pageUrl: String?
+        @RequestParam(required = false) pageUrl: String?,
+        @RequestParam(defaultValue = "ko") searchLang: String
     ): GlossaryPage {
+        // Cross-language search: use GlossarySearchService for non-ko languages
+        if (!search.isNullOrBlank() && searchLang.lowercase() != "ko") {
+            val results = glossarySearchService.searchByLanguage(search, searchLang, pageUrl, size)
+            return GlossaryPage(
+                content = results.map { it.glossary.toResponse() },
+                totalPages = 1,
+                totalElements = results.size.toLong(),
+                number = 0,
+                size = results.size
+            )
+        }
+
         val pageRequest = PageRequest.of(page, size.coerceAtMost(100), Sort.by("id"))
 
         val glossaryPage: Page<Glossary> = when {

@@ -6,4 +6,6 @@ import org.springframework.stereotype.Repository
 @Repository
 interface ApprovedTranslationRepository : JpaRepository<ApprovedTranslation, Long> {
     fun findBySourceTextHashAndTargetLang(sourceTextHash: String, targetLang: String): ApprovedTranslation?
+
+    fun findByTargetLangOrderByUsageCountDesc(targetLang: String): List<ApprovedTranslation>
 }

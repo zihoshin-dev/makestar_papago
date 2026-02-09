@@ -76,6 +76,66 @@ class TokenizationService(
         return ngrams
     }
 
+    fun tokenizeMultiLang(text: String, lang: String): Set<String> {
+        if (text.isBlank()) return emptySet()
+        val trimmed = text.trim().lowercase()
+
+        return when (lang) {
+            "en", "es", "de", "fr" -> tokenizeLatinLang(trimmed)
+            "zh-hans", "zh_hans", "zh-hant", "zh_hant" -> tokenizeCJK(trimmed)
+            "ja" -> tokenizeJapanese(trimmed)
+            "ko" -> tokenizeForIndex(text)
+            else -> tokenizeLatinLang(trimmed)
+        }
+    }
+
+    private fun tokenizeLatinLang(text: String): Set<String> {
+        val words = text.split(SPLIT_PATTERN).filter { it.length >= 2 }
+        val tokens = mutableSetOf<String>()
+
+        tokens.addAll(words)
+        tokens.add(text)
+
+        // Bigrams
+        for (i in 0 until words.size - 1) {
+            tokens.add("${words[i]} ${words[i + 1]}")
+        }
+
+        return tokens
+    }
+
+    private fun tokenizeCJK(text: String): Set<String> {
+        val tokens = mutableSetOf<String>()
+        val cleaned = text.filter { !it.isWhitespace() }
+
+        tokens.add(cleaned)
+
+        // Character n-grams (2-4 chars)
+        for (n in 2..minOf(4, cleaned.length)) {
+            for (i in 0..cleaned.length - n) {
+                tokens.add(cleaned.substring(i, i + n))
+            }
+        }
+
+        return tokens.filter { it.length >= 2 }.toSet()
+    }
+
+    private fun tokenizeJapanese(text: String): Set<String> {
+        val tokens = mutableSetOf<String>()
+        val cleaned = text.filter { !it.isWhitespace() }
+
+        tokens.add(cleaned)
+
+        // Character n-grams (2-4 chars)
+        for (n in 2..minOf(4, cleaned.length)) {
+            for (i in 0..cleaned.length - n) {
+                tokens.add(cleaned.substring(i, i + n))
+            }
+        }
+
+        return tokens.filter { it.length >= 2 }.toSet()
+    }
+
     companion object {
         private val SPLIT_PATTERN = Regex("[\\s,.!?;:()\\[\\]{}\"'~·…/\\\\|@#\$%^&*+=<>]+")
     }

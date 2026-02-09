@@ -22,6 +22,26 @@ class ContextDetectionService(
         )
     }
 
+    private val CONTEXT_DESCRIPTIONS = mapOf(
+        "/artist" to "K-Pop 아티스트 목록 및 검색 페이지",
+        "/artist/:id" to "K-Pop 아티스트 프로필 상세 페이지",
+        "/project" to "크라우드펀딩 프로젝트 목록 페이지",
+        "/project/:id" to "크라우드펀딩 프로젝트 상세 페이지",
+        "/mypage" to "사용자 마이페이지 (개인 정보, 주문 내역)",
+        "/order" to "주문/결제/배송 관련 페이지",
+        "/community" to "팬 커뮤니티 게시판 페이지",
+        "/auth" to "로그인/회원가입 인증 페이지",
+        "/fandom" to "K-Pop 팬덤 활동 페이지",
+        "/event" to "팬 이벤트 (팬싸인회, 영통, 럭키드로우) 페이지"
+    )
+
+    fun getContextDescription(pageUrl: String?): String? {
+        if (pageUrl.isNullOrBlank()) return null
+        return CONTEXT_DESCRIPTIONS.entries
+            .firstOrNull { pageUrl.startsWith(it.key.replace("/:id", "")) }
+            ?.value
+    }
+
     /**
      * Analyze input text and auto-detect the most relevant page context.
      * Uses morphological stemming for better keyword matching.

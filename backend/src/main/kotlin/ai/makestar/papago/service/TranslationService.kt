@@ -12,6 +12,11 @@ class TranslationService(
     private val contextDetectionService: ContextDetectionService,
     private val koreanSlangDictionaryService: KoreanSlangDictionaryService,
     private val toneDetectorService: ToneDetectorService,
+    private val languageDetectionService: LanguageDetectionService,
+    private val translationExampleService: TranslationExampleService,
+    private val translationVerificationService: TranslationVerificationService,
+    private val consistencyService: ConsistencyService,
+    private val glossaryExtractionService: GlossaryExtractionService,
     @Value("\${api.claude.key}") private val claudeApiKey: String
 ) {
     private val webClient = WebClient.builder().build()
@@ -33,8 +38,9 @@ class TranslationService(
     }
 
     fun translate(text: String, targetLang: String, pageUrl: String? = null, sourceLang: String? = null): TranslationResult {
-        // 0. Determine if source is Korean
-        val isSourceKorean = sourceLang == null || sourceLang.lowercase() == "ko"
+        // 0. Auto-detect source language if not specified
+        val detectedSourceLang = sourceLang ?: languageDetectionService.detectLanguage(text)
+        val isSourceKorean = detectedSourceLang.lowercase() == "ko"
 
         // 1. Input validation
         val validation = inputValidationService.validate(text)
@@ -101,13 +107,14 @@ class TranslationService(
             }
         }
 
-        // 5. RAG: Score-based glossary search with relevance threshold (Korean source only)
-        val detectedPageUrl = if (isSourceKorean) pageUrl ?: contextDetectionService.detectContext(text) else null
+        // 5. RAG: Score-based glossary search (Korean source or cross-language)
+        val detectedPageUrl = if (isSourceKorean) pageUrl ?: contextDetectionService.detectContext(text) else pageUrl
         val scoredMatches = if (isSourceKorean) {
             glossarySearchService.search(text, detectedPageUrl)
                 .filter { it.score >= GLOSSARY_MIN_SCORE }
         } else {
-            emptyList()
+            glossarySearchService.searchByLanguage(text, detectedSourceLang, detectedPageUrl)
+                .filter { it.score >= GLOSSARY_MIN_SCORE }
         }
 
         // 6. STRATEGY B: GLOSSARY_DIRECT - Single exact match with target translation (Korean source only)
@@ -115,7 +122,6 @@ class TranslationService(
             val exactMatch = scoredMatches.first().glossary
             val directTranslation = glossarySearchService.getBestTranslation(exactMatch, targetLang)
 
-            // Only use direct if translation is meaningful (not just falling back to English)
             val hasTargetTranslation = when (targetLang.lowercase()) {
                 "en" -> exactMatch.en.isNotBlank()
                 "ja" -> exactMatch.ja.isNotBlank()
@@ -182,36 +188,72 @@ class TranslationService(
             }
         } else null
 
-        // 8. STRATEGY C: RAG_ASSISTED - Glossary context + Claude API (Korean source)
-        // STRATEGY D: LLM_PRIMARY - No glossary matches, Claude API only (any source)
-        val langName = LANGUAGE_NAMES[targetLang.lowercase()] ?: targetLang
-        val sourceLangName = if (sourceLang != null) LANGUAGE_NAMES[sourceLang.lowercase()] ?: sourceLang else null
-        val rawTranslation = callClaudeApi(text, langName, glossaryContext, toneHint, sourceLangName)
+        // 8. Few-shot examples from approved translations
+        val fewShotExamples = translationExampleService.findSimilarExamples(text, targetLang)
+        val fewShotContext = translationExampleService.formatExamplesForPrompt(fewShotExamples)
 
-        // 9. Post-processing validation
+        // 9. Page context description
+        val contextDescription = contextDetectionService.getContextDescription(detectedPageUrl)
+
+        // 10. STRATEGY C: RAG_ASSISTED / STRATEGY D: LLM_PRIMARY
+        val langName = LANGUAGE_NAMES[targetLang.lowercase()] ?: targetLang
+        val sourceLangName = LANGUAGE_NAMES[detectedSourceLang.lowercase()] ?: detectedSourceLang
+        val rawTranslation = callClaudeApi(text, langName, glossaryContext, toneHint, sourceLangName, fewShotContext, contextDescription)
+
+        // 11. Post-processing validation
         val translatedText = postProcessTranslation(rawTranslation, text, langName, isSourceKorean)
 
-        // 5. Record translation history
+        // 12. Post-translation verification
+        val matchedTerms = scoredMatches.map { scored ->
+            MatchedTerm(
+                sourceKo = scored.glossary.ko,
+                expectedTranslation = glossarySearchService.getBestTranslation(scored.glossary, targetLang)
+            )
+        }
+        val verification = translationVerificationService.verify(text, translatedText, targetLang, matchedTerms)
+
+        // 12a. Retry once if verification failed and is retriable
+        val finalTranslatedText = if (!verification.passed && verification.shouldRetry) {
+            val retryPrompt = buildRetryPrompt(text, translatedText, verification, langName, glossaryContext, sourceLangName)
+            val retryResult = callClaudeApiRaw(retryPrompt, langName, sourceLangName)
+            postProcessTranslation(retryResult, text, langName, isSourceKorean)
+        } else {
+            translatedText
+        }
+
+        // 13. Consistency check
+        val consistencyIssues = consistencyService.checkConsistency(text, finalTranslatedText, targetLang)
+
+        // 14. Record translation history
         val historyId = feedbackService.recordTranslation(
             sourceText = text,
             targetLang = targetLang,
-            translatedText = translatedText,
+            translatedText = finalTranslatedText,
             matchedGlossaryCount = scoredMatches.size,
             isFromCache = false
         )
+
+        // 15. Async: extract candidate glossary entries
+        if (isSourceKorean) {
+            glossaryExtractionService.extractCandidates(text, finalTranslatedText, targetLang, detectedPageUrl)
+        }
 
         val strategy = if (scoredMatches.isNotEmpty()) "RAG_ASSISTED" else "LLM_PRIMARY"
 
         return TranslationResult(
             originalText = text,
-            translatedText = translatedText,
+            translatedText = finalTranslatedText,
             targetLang = targetLang,
             contextUsed = glossaryContext.ifBlank { "No glossary matches (LLM-only translation)" },
             matchedGlossaryIds = matchedGlossaryIds,
             matchScores = matchScores,
             historyId = historyId,
             translationStrategy = strategy,
-            detectedTone = detectedTone
+            detectedTone = detectedTone,
+            verificationIssues = verification.issues.map { it.message }.ifEmpty { null },
+            consistencyIssues = consistencyIssues.map {
+                "\"${it.existingSource}\" -> \"${it.existingTranslation}\" vs \"${it.newSource}\" -> \"${it.newTranslation}\""
+            }.ifEmpty { null }
         )
     }
 
@@ -243,7 +285,6 @@ class TranslationService(
         }
 
         // Detect when translation equals original (Claude returned input as-is)
-        // But allow short Korean consonant/vowel expressions (K-Pop internet slang)
         val normalizedResult = result.replace("\\s+".toRegex(), "").lowercase()
         val normalizedOriginal = originalText.replace("\\s+".toRegex(), "").lowercase()
         if (normalizedResult == normalizedOriginal && originalText.length > 1 && !isKoreanJamo) {
@@ -253,15 +294,69 @@ class TranslationService(
         return result
     }
 
+    private fun buildRetryPrompt(
+        originalText: String,
+        failedTranslation: String,
+        verification: VerificationResult,
+        targetLangName: String,
+        glossaryContext: String,
+        sourceLangName: String
+    ): String {
+        return buildString {
+            appendLine("The previous translation had issues. Please fix:")
+            appendLine("Original: $originalText")
+            appendLine("Previous translation: $failedTranslation")
+            appendLine("Issues:")
+            for (issue in verification.issues) {
+                appendLine("- ${issue.message}")
+            }
+            if (glossaryContext.isNotBlank()) {
+                appendLine()
+                appendLine(glossaryContext)
+            }
+            appendLine()
+            append("Translate from $sourceLangName to $targetLangName correctly. Return ONLY the translated text.")
+        }
+    }
+
+    private fun callClaudeApiRaw(userMessage: String, targetLangName: String, sourceLangName: String): String {
+        val systemPrompt = "You are a professional $sourceLangName-to-$targetLangName translator. Return ONLY the translated text."
+        return try {
+            val response = webClient.post()
+                .uri("https://api.anthropic.com/v1/messages")
+                .header("x-api-key", claudeApiKey)
+                .header("anthropic-version", "2023-06-01")
+                .header("Content-Type", "application/json")
+                .bodyValue(mapOf(
+                    "model" to "claude-sonnet-4-20250514",
+                    "max_tokens" to 4096,
+                    "system" to systemPrompt,
+                    "messages" to listOf(
+                        mapOf("role" to "user", "content" to userMessage)
+                    )
+                ))
+                .retrieve()
+                .bodyToMono(Map::class.java)
+                .block()
+
+            @Suppress("UNCHECKED_CAST")
+            val content = response?.get("content") as? List<Map<String, Any>>
+            content?.firstOrNull()?.get("text") as? String ?: "Translation Failed"
+        } catch (e: Exception) {
+            "Error: ${e.message}"
+        }
+    }
+
     private fun callClaudeApi(
         text: String,
         targetLangName: String,
         context: String,
         toneHint: String? = null,
-        sourceLangName: String? = null
+        sourceLangName: String? = null,
+        fewShotContext: String = "",
+        contextDescription: String? = null
     ): String {
         val systemPrompt = if (sourceLangName != null && sourceLangName != "Korean") {
-            // Non-Korean source language
             buildString {
                 append("""You are a professional $sourceLangName-to-$targetLangName translator specializing in K-Pop fandom and e-commerce (Makestar platform).
 
@@ -273,12 +368,15 @@ Rules:
 5. If the input is truly meaningless, respond with exactly: $UNTRANSLATABLE_MARKER
 6. Never return the original text as the translation.""".trimIndent())
 
+                if (contextDescription != null) {
+                    append("\n7. Page context: $contextDescription")
+                }
+
                 if (toneHint != null) {
                     append(toneHint)
                 }
             }
         } else {
-            // Korean source language (default)
             buildString {
                 append("""You are a professional Korean-to-$targetLangName translator specializing in K-Pop fandom and e-commerce (Makestar platform).
 
@@ -302,6 +400,10 @@ Rules:
 6. If the input is truly meaningless random NON-KOREAN characters, respond with exactly: $UNTRANSLATABLE_MARKER
 7. Never return the original Korean text as the translation.""".trimIndent())
 
+                if (contextDescription != null) {
+                    append("\n8. Page context: $contextDescription")
+                }
+
                 if (toneHint != null) {
                     append(toneHint)
                 }
@@ -310,6 +412,10 @@ Rules:
 
         val sourceLabel = sourceLangName ?: "Korean"
         val userMessage = buildString {
+            if (fewShotContext.isNotBlank()) {
+                appendLine(fewShotContext)
+                appendLine()
+            }
             if (context.isNotBlank()) {
                 appendLine(context)
                 appendLine()
@@ -362,5 +468,7 @@ data class TranslationResult(
     val isFromCache: Boolean = false,
     val isValidationError: Boolean = false,
     val translationStrategy: String = "RAG_ASSISTED",
-    val detectedTone: String? = null
+    val detectedTone: String? = null,
+    val verificationIssues: List<String>? = null,
+    val consistencyIssues: List<String>? = null
 )

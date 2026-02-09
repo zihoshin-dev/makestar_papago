@@ -2,8 +2,6 @@ package ai.makestar.papago.service
 
 import ai.makestar.papago.domain.Glossary
 import ai.makestar.papago.domain.GlossaryRepository
-import ai.makestar.papago.domain.GlossaryToken
-import ai.makestar.papago.domain.GlossaryTokenRepository
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import jakarta.annotation.PostConstruct
@@ -14,8 +12,7 @@ import java.io.File
 @Service
 class GlossaryInitializer(
     private val glossaryRepository: GlossaryRepository,
-    private val glossaryTokenRepository: GlossaryTokenRepository,
-    private val tokenizationService: TokenizationService,
+    private val tokenIndexService: TokenIndexService,
     private val objectMapper: ObjectMapper
 ) {
     private val localJsonPath = "/Users/zihoshin/clawd/data-collection/sheet_db.json"
@@ -66,29 +63,10 @@ class GlossaryInitializer(
         println("Initialized ${glossaries.size} glossary items.")
 
         // Build token index
-        buildTokenIndex(glossaries)
-    }
+        tokenIndexService.buildTokenIndex(glossaries)
 
-    private fun buildTokenIndex(glossaries: List<Glossary>) {
-        val tokens = mutableListOf<GlossaryToken>()
-
-        for (glossary in glossaries) {
-            val glossaryId = glossary.id ?: continue
-            val koTokens = tokenizationService.tokenizeForIndex(glossary.ko)
-
-            for (token in koTokens) {
-                tokens.add(
-                    GlossaryToken(
-                        token = token,
-                        glossaryId = glossaryId,
-                        tokenLength = token.length
-                    )
-                )
-            }
-        }
-
-        glossaryTokenRepository.saveAll(tokens)
-        println("Built token index: ${tokens.size} tokens for ${glossaries.size} glossary items.")
+        // Build multi-language token index
+        tokenIndexService.buildMultiLangIndex(glossaries)
     }
 
     private fun loadJsonContent(): String? {
