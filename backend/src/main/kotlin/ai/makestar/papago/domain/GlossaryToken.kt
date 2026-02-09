@@ -14,7 +14,7 @@ class GlossaryToken(
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     val id: Long? = null,
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "TEXT")
     val token: String,
 
     @Column(nullable = false)
