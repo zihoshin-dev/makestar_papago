@@ -30,6 +30,7 @@ data class GlossaryPage(
 )
 
 data class GlossaryUpdateRequest(
+    val pageUrl: String? = null,
     val ko: String? = null,
     val en: String? = null,
     val ja: String? = null,
@@ -64,7 +65,8 @@ class GlossaryController(
         @RequestParam(defaultValue = "50") size: Int,
         @RequestParam(required = false) search: String?,
         @RequestParam(required = false) pageUrl: String?,
-        @RequestParam(defaultValue = "ko") searchLang: String
+        @RequestParam(defaultValue = "ko") searchLang: String,
+        @RequestParam(defaultValue = "ko") sort: String
     ): GlossaryPage {
         // Cross-language search: use GlossarySearchService for non-ko languages
         if (!search.isNullOrBlank() && searchLang.lowercase() != "ko") {
@@ -78,7 +80,8 @@ class GlossaryController(
             )
         }
 
-        val pageRequest = PageRequest.of(page, size.coerceAtMost(100), Sort.by("id"))
+        val sortField = if (sort in listOf("ko", "en", "ja", "pageUrl", "id")) sort else "ko"
+        val pageRequest = PageRequest.of(page, size.coerceAtMost(100), Sort.by(sortField))
 
         val glossaryPage: Page<Glossary> = when {
             !search.isNullOrBlank() && !pageUrl.isNullOrBlank() -> {
@@ -128,6 +131,7 @@ class GlossaryController(
         val glossary = glossaryRepository.findById(id)
             .orElseThrow { RuntimeException("Glossary not found: $id") }
 
+        request.pageUrl?.let { glossary.pageUrl = it }
         request.ko?.let { glossary.ko = it }
         request.en?.let { glossary.en = it }
         request.ja?.let { glossary.ja = it }

@@ -16,7 +16,7 @@ class Glossary(
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     val id: Long? = null,
 
-    val pageUrl: String,
+    var pageUrl: String,
     val keyName: String,
 
     // System DB (기본 번역)
