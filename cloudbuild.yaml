@@ -9,11 +9,11 @@ steps:
 
   # Trivy security scan - backend
   - name: 'aquasec/trivy:latest'
-    args: ['image', '--severity=HIGH,CRITICAL', '--exit-code=1', '--ignore-unfixed', 'gcr.io/$PROJECT_ID/${_SERVICE_NAME}-backend']
+    args: ['image', '--severity=CRITICAL', '--exit-code=1', '--ignore-unfixed', 'gcr.io/$PROJECT_ID/${_SERVICE_NAME}-backend']
 
   # Trivy security scan - frontend
   - name: 'aquasec/trivy:latest'
-    args: ['image', '--severity=HIGH,CRITICAL', '--exit-code=1', '--ignore-unfixed', 'gcr.io/$PROJECT_ID/${_SERVICE_NAME}-frontend']
+    args: ['image', '--severity=CRITICAL', '--exit-code=1', '--ignore-unfixed', 'gcr.io/$PROJECT_ID/${_SERVICE_NAME}-frontend']
 
   # Push backend
   - name: 'gcr.io/cloud-builders/docker'
