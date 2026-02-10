@@ -49,5 +49,13 @@ class TranslationHistory(
 
     val matchedGlossaryCount: Int = 0,
 
-    val isFromCache: Boolean = false
+    val isFromCache: Boolean = false,
+
+    @Column(columnDefinition = "TEXT")
+    var verificationStatus: String? = null,
+
+    @Column(columnDefinition = "TEXT")
+    var verificationIssues: String? = null,
+
+    var verifiedAt: LocalDateTime? = null
 )

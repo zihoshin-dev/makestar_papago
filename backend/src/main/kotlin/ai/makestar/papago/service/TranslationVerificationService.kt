@@ -1,12 +1,16 @@
 package ai.makestar.papago.service
 
+import org.slf4j.LoggerFactory
+import org.springframework.scheduling.annotation.Async
 import org.springframework.stereotype.Service
 
 @Service
 class TranslationVerificationService(
     private val glossarySearchService: GlossarySearchService,
-    private val languageDetectionService: LanguageDetectionService
+    private val languageDetectionService: LanguageDetectionService,
+    private val feedbackService: FeedbackService
 ) {
+    private val logger = LoggerFactory.getLogger(TranslationVerificationService::class.java)
 
     fun verify(
         originalText: String,
@@ -72,6 +76,38 @@ class TranslationVerificationService(
             // Latin-script languages may be detected as "en" when short
             detected == "en" && targetNorm in listOf("en", "es", "de", "fr") -> true
             else -> false
+        }
+    }
+
+    @Async
+    fun verifyAsync(
+        historyId: Long,
+        originalText: String,
+        translatedText: String,
+        targetLang: String,
+        matchedTerms: List<MatchedTerm>
+    ) {
+        try {
+            val result = verify(originalText, translatedText, targetLang, matchedTerms)
+
+            val status = when {
+                result.passed -> "PASSED"
+                result.shouldRetry -> "FAILED_RETRIABLE"
+                else -> "FAILED"
+            }
+
+            val issuesJson = if (result.issues.isNotEmpty()) {
+                result.issues.joinToString("; ") { "${it.type}: ${it.message}" }
+            } else null
+
+            feedbackService.updateVerificationStatus(historyId, status, issuesJson)
+
+            if (!result.passed) {
+                logger.warn("Verification failed for historyId=$historyId: $issuesJson")
+            }
+        } catch (e: Exception) {
+            logger.error("Async verification failed for historyId=$historyId", e)
+            feedbackService.updateVerificationStatus(historyId, "ERROR", e.message)
         }
     }
 

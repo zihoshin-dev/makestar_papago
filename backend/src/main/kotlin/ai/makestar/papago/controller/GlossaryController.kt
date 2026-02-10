@@ -3,10 +3,14 @@ package ai.makestar.papago.controller
 import ai.makestar.papago.domain.Glossary
 import ai.makestar.papago.domain.GlossaryRepository
 import ai.makestar.papago.service.GlossarySearchService
+import org.springframework.cache.annotation.CacheEvict
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
+import org.springframework.http.CacheControl
+import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
+import java.util.concurrent.TimeUnit
 
 data class GlossaryResponse(
     val id: Long,
@@ -67,17 +71,22 @@ class GlossaryController(
         @RequestParam(required = false) pageUrl: String?,
         @RequestParam(defaultValue = "ko") searchLang: String,
         @RequestParam(defaultValue = "ko") sort: String
-    ): GlossaryPage {
+    ): ResponseEntity<GlossaryPage> {
         // Cross-language search: use GlossarySearchService for non-ko languages
         if (!search.isNullOrBlank() && searchLang.lowercase() != "ko") {
             val results = glossarySearchService.searchByLanguage(search, searchLang, pageUrl, size)
-            return GlossaryPage(
+            val result = GlossaryPage(
                 content = results.map { it.glossary.toResponse() },
                 totalPages = 1,
                 totalElements = results.size.toLong(),
                 number = 0,
                 size = results.size
             )
+            val etag = "\"${result.totalElements}-${result.content.hashCode()}\""
+            return ResponseEntity.ok()
+                .cacheControl(CacheControl.maxAge(5, TimeUnit.MINUTES).cachePublic())
+                .eTag(etag)
+                .body(result)
         }
 
         val sortField = if (sort in listOf("ko", "en", "ja", "pageUrl", "id")) sort else "ko"
@@ -98,16 +107,22 @@ class GlossaryController(
             }
         }
 
-        return GlossaryPage(
+        val result = GlossaryPage(
             content = glossaryPage.content.map { it.toResponse() },
             totalPages = glossaryPage.totalPages,
             totalElements = glossaryPage.totalElements,
             number = glossaryPage.number,
             size = glossaryPage.size
         )
+        val etag = "\"${result.totalElements}-${result.content.hashCode()}\""
+        return ResponseEntity.ok()
+            .cacheControl(CacheControl.maxAge(5, TimeUnit.MINUTES).cachePublic())
+            .eTag(etag)
+            .body(result)
     }
 
     @PostMapping
+    @CacheEvict(cacheNames = ["glossary", "glossaryTokens", "glossaryMultiLangTokens"], allEntries = true)
     fun createGlossary(@RequestBody request: GlossaryCreateRequest): GlossaryResponse {
         val keyName = request.ko.lowercase().replace(Regex("[^a-zA-Z0-9가-힣]"), "_")
         val glossary = Glossary(
@@ -127,6 +142,7 @@ class GlossaryController(
     }
 
     @PutMapping("/{id}")
+    @CacheEvict(cacheNames = ["glossary", "glossaryTokens", "glossaryMultiLangTokens"], allEntries = true)
     fun updateGlossary(@PathVariable id: Long, @RequestBody request: GlossaryUpdateRequest): GlossaryResponse {
         val glossary = glossaryRepository.findById(id)
             .orElseThrow { RuntimeException("Glossary not found: $id") }

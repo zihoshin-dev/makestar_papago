@@ -1,6 +1,8 @@
 package ai.makestar.papago.service
 
 import ai.makestar.papago.domain.*
+import org.springframework.cache.annotation.CacheEvict
+import org.springframework.cache.annotation.Cacheable
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.security.MessageDigest
@@ -31,6 +33,7 @@ class FeedbackService(
     }
 
     @Transactional
+    @CacheEvict(cacheNames = ["approvedTranslations", "approvedExamples"], allEntries = true)
     fun submitFeedback(
         historyId: Long,
         status: TranslationStatus,
@@ -61,6 +64,7 @@ class FeedbackService(
         }
     }
 
+    @Cacheable(cacheNames = ["approvedTranslations"], key = "#sourceText + '_' + #targetLang")
     fun findApprovedTranslation(sourceText: String, targetLang: String): ApprovedTranslation? {
         val hash = sha256(sourceText)
         val approved = approvedRepository.findBySourceTextHashAndTargetLang(hash, targetLang)
@@ -93,6 +97,22 @@ class FeedbackService(
                 )
             )
         }
+    }
+
+    @Transactional
+    fun updateVerificationStatus(
+        historyId: Long,
+        verificationStatus: String,
+        verificationIssues: String?
+    ) {
+        val history = historyRepository.findById(historyId)
+            .orElseThrow { IllegalArgumentException("History not found: $historyId") }
+
+        history.verificationStatus = verificationStatus
+        history.verificationIssues = verificationIssues
+        history.verifiedAt = LocalDateTime.now()
+
+        historyRepository.save(history)
     }
 
     private fun sha256(text: String): String {

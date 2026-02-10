@@ -65,6 +65,10 @@ class GlossarySearchService(
             // Group by glossaryId, calculate score based on matched token lengths
             val glossaryTokenMatches = matchedTokenEntries.groupBy { it.glossaryId }
 
+            // Batch load all glossaries to avoid N+1 queries
+            val allGlossaryIds = glossaryTokenMatches.keys.filter { !scoredResults.containsKey(it) }
+            val allGlossaries = glossaryRepository.findAllById(allGlossaryIds).associateBy { it.id }
+
             for ((glossaryId, tokens) in glossaryTokenMatches) {
                 if (scoredResults.containsKey(glossaryId)) continue // already exact matched
 
@@ -76,7 +80,7 @@ class GlossarySearchService(
 
                 val score = (lengthRatio * 60.0 + countBonus).coerceAtMost(60.0)
 
-                val glossary = glossaryRepository.findById(glossaryId).orElse(null) ?: continue
+                val glossary = allGlossaries[glossaryId] ?: continue
                 scoredResults[glossaryId] = ScoredGlossary(glossary, score, "token")
             }
         }
@@ -142,6 +146,10 @@ class GlossarySearchService(
             val matchedTokenEntries = multiLangTokenRepository.findByTokenInAndLang(inputTokens, searchLang)
             val glossaryTokenMatches = matchedTokenEntries.groupBy { it.glossaryId }
 
+            // Batch load all glossaries to avoid N+1 queries
+            val allGlossaryIds = glossaryTokenMatches.keys.filter { !scoredResults.containsKey(it) }
+            val allGlossaries = glossaryRepository.findAllById(allGlossaryIds).associateBy { it.id }
+
             for ((glossaryId, tokens) in glossaryTokenMatches) {
                 if (scoredResults.containsKey(glossaryId)) continue
 
@@ -151,7 +159,7 @@ class GlossarySearchService(
                 val countBonus = (matchCount - 1).coerceAtMost(5) * 2.0
                 val score = (lengthRatio * 60.0 + countBonus).coerceAtMost(60.0)
 
-                val glossary = glossaryRepository.findById(glossaryId).orElse(null) ?: continue
+                val glossary = allGlossaries[glossaryId] ?: continue
                 scoredResults[glossaryId] = ScoredGlossary(glossary, score, "token")
             }
         }
